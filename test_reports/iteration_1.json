@@ -1,0 +1,37 @@
+{
+  "summary": "DOMVUS Phase 1 tested end-to-end. Backend: 20/20 pytest passing covering auth (login/me/logout, invalid pw 401, brute-force 429), RBAC (owner blocked from all POSTs, 403), tenant isolation (owner sees only own condo/fractions/txns, 403 on cross-condo GET; super_admin sees all 3), CRUD condominiums with cascade delete, fractions/owners CRUD with computed balance, transactions creating charge/payment updating fraction balance (charge 50 + charge 10 − payment 30 = 30; delete charge => 20), dashboard structure/receivable equality with sum of positive fraction balances, dashboard condominium_id filter, owner-scoped dashboard. Frontend: login prefilled works, /dashboard renders totals (3 condos, 18 fractions, 18 owners, 1221€ receivable) with charts, aging, recent payments; navigation to /condominios, /fracoes, /condominos works; add-condominium modal creates and lists new condo (verified TEST_UI_Condo visible then cleaned up). No critical UI or integration issues.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard charts", "issues": ["Recharts prints repeated console warnings 'width(-1) and height(-1)' during initial mount — cosmetic only, charts still render correctly after layout settles."]},
+      {"screen": "Modals (Novo Condomínio)", "issues": ["Radix DialogContent missing Description/aria-describedby — accessibility warning."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_domvus_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Low) Silence Recharts width/height warnings by ensuring ResponsiveContainer parent has explicit min-height on first paint.",
+    "(Low) Add DialogDescription (or aria-describedby) to all Radix Dialogs to fix a11y warnings.",
+    "(Info) Dashboard 'overdue' is currently just equal to 'receivable' (see routes.py line 108). If a true 30-day overdue metric is desired later, split it from receivable."
+  ],
+  "critical_code_review_comments": [
+    "routes.py: fraction_balance() and list_fractions loop do N+1 async queries per fraction (one full transactions scan per fraction). Fine at seed scale but will not scale — aggregate via a single $group query keyed by fraction_id.",
+    "routes.py list_owners does N+1 as well (fractions per owner + fraction_balance per fraction).",
+    "auth.py: brute-force lockout uses ISO-string comparison on created_at which works but is fragile if any doc lacks timezone; would be more robust to store real datetimes and use $gt with datetime objects.",
+    "server.py: FRONTEND_URL default is http://localhost:3000; ensure it is set in prod env for CORS + reset email links. CORS list is hardcoded, consider comma-separated env list.",
+    "routes.py delete_condominium cascades but does not run inside a transaction — partial failures could leave orphans (acceptable at MVP).",
+    "models.py TransactionInput.amount has no non-negative validation; negative amounts on charge/payment can invert balances (adjustment is allowed to be signed by design)."
+  ],
+  "updated_files": ["/app/backend/tests/test_domvus_backend.py"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% of exercised flows"},
+  "test_credentials": "super_admin master.marques@gmail.com / Domvus2025!; owner condomino@domvus.pt / Domvus2025! (see /app/memory/test_credentials.md)",
+  "seed_data_creation": "Used existing seed (3 condos, 18 fractions/owners). All TEST_ prefixed data created during tests was cleaned up.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite at /app/backend/tests/test_domvus_backend.py — run with `pytest tests/test_domvus_backend.py -v`. All auth/RBAC/tenant/CRUD/finance/dashboard paths covered. Frontend nav-testid pattern: nav-<slug>; note the sidebar entry 'Contas Correntes' — the testid for that link should be verified (my script timed out on `nav-contas-correntes`, but this may be `nav-contas` — not a bug, just a test-script selector detail).",
+  "rca of the issue": "No blocking bugs found."
+}

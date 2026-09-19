@@ -1,0 +1,116 @@
+{
+  "brand_identity": {
+    "name": "DOMVUS",
+    "industry": "Proptech & Fintech SaaS",
+    "target_audience": "Portuguese property-management professionals (B2B)",
+    "tone": "Trustworthy, efficient, precise, professional, high-density.",
+    "language": "European Portuguese",
+    "design_archetype": "Swiss & High-Contrast (Archetype 4). Objective, rigid, and strictly functional."
+  },
+  "typography": {
+    "instructions_to_main_agent": "Use exact fonts below. Never use Inter for headings. Ensure high legibility for dense numbers.",
+    "headings": {
+      "family": "Manrope",
+      "weights": ["500", "600", "700"],
+      "usage": "H1-H4, KPIs, Hero numbers, Section titles.",
+      "letter_spacing": "tracking-tight",
+      "fallback": "sans-serif"
+    },
+    "body": {
+      "family": "IBM Plex Sans",
+      "weights": ["400", "500", "600"],
+      "usage": "Data tables, descriptions, forms, ledgers, financial figures.",
+      "features": "MUST use 'font-tabular-nums' for all currency and numeric columns.",
+      "fallback": "sans-serif"
+    }
+  },
+  "colors": {
+    "theme_preference": "Light theme is primary. Deep contrast dark mode provided as secondary. Avoid generic purples or tech gradients.",
+    "css_variables": {
+      "light": {
+        "--background": "210 40% 98%",
+        "--foreground": "222 47% 11%",
+        "--card": "0 0% 100%",
+        "--card-foreground": "222 47% 11%",
+        "--popover": "0 0% 100%",
+        "--popover-foreground": "222 47% 11%",
+        "--primary": "222 47% 11%",
+        "--primary-foreground": "210 40% 98%",
+        "--secondary": "210 40% 96%",
+        "--secondary-foreground": "222 47% 11%",
+        "--muted": "210 40% 96%",
+        "--muted-foreground": "215 16% 47%",
+        "--accent": "210 40% 96%",
+        "--accent-foreground": "222 47% 11%",
+        "--destructive": "0 84% 60%",
+        "--destructive-foreground": "210 40% 98%",
+        "--border": "214 32% 91%",
+        "--input": "214 32% 91%",
+        "--ring": "222 47% 11%",
+        "--radius": "0.3rem"
+      },
+      "dark": {
+        "--background": "222 47% 11%",
+        "--foreground": "210 40% 98%",
+        "--card": "222 47% 11%",
+        "--card-foreground": "210 40% 98%",
+        "--popover": "222 47% 11%",
+        "--popover-foreground": "210 40% 98%",
+        "--primary": "210 40% 98%",
+        "--primary-foreground": "222 47% 11%",
+        "--secondary": "217 33% 17%",
+        "--secondary-foreground": "210 40% 98%",
+        "--muted": "217 33% 17%",
+        "--muted-foreground": "215 20% 65%",
+        "--accent": "217 33% 17%",
+        "--accent-foreground": "210 40% 98%",
+        "--destructive": "0 63% 31%",
+        "--destructive-foreground": "210 40% 98%",
+        "--border": "217 33% 17%",
+        "--input": "217 33% 17%",
+        "--ring": "213 27% 84%"
+      }
+    },
+    "semantic": {
+      "success": "emerald-600",
+      "warning": "amber-500",
+      "danger": "rose-600",
+      "info": "blue-600"
+    }
+  },
+  "visual_enhancers": {
+    "borders": "Expose the skeleton. Use 1px solid borders (border-border) for cards and grids. Do NOT use soft shadows for standard dashboard cards.",
+    "radius": "Use sharp, professional corners: rounded-md (6px) or rounded-sm (4px). Avoid fully rounded pill shapes unless it's a small status badge.",
+    "shadows": "Minimalist flat design. Rely on borders to separate elements. Only use shadow-sm on interactive hover states, dropdowns, and modals.",
+    "glassmorphism": "Only use for sticky headers if content scrolls underneath (e.g., backdrop-blur-md bg-white/80). Do NOT use transparent backgrounds on data surfaces."
+  },
+  "components": {
+    "instructions_to_main_agent": "Use Shadcn UI components but strip away default Vercel vibes. Implement dense, technical configurations.",
+    "sidebar": "Grouped layout: Management, Finance, Operations, Documents, Administration. Use a crisp background (bg-card or bg-slate-50) with a 1px right border. Use Lucide-react icons (size 18).",
+    "data_tables": "CRITICAL: High information density. Use py-2 px-3 padding for table cells. text-sm text. Align all financial columns to the right. Use font-tabular-nums for monetary values. Subtle border-b on rows.",
+    "status_badges": "Professional, low-saturation backgrounds with high-contrast text. E.g., Pago: bg-emerald-100 text-emerald-800. Pendente: bg-amber-100 text-amber-800. rounded-md px-2 py-0.5 text-xs font-semibold.",
+    "kpi_cards": "Bento-style metrics. Top label text-sm text-muted-foreground. Metric value: Manrope font-bold text-3xl. Include small trend indicator (e.g., +2.5% this month) in semantic colors.",
+    "empty_states": "Must be useful. Center aligned inside a bordered container. Include a Lucide icon (stroke-width 1.5, text-muted-foreground), a clear brief title, and a primary action button.",
+    "charts": "Use Recharts or Shadcn Charts. Stick to corporate colors (Brand Slate, Emerald, Rose). No neon glowing lines. Keep axes clean and legible."
+  },
+  "layouts": {
+    "grids": "Follow the 'High Density Grid' protocol. grid-cols-1 md:grid-cols-2 lg:grid-cols-4 for KPI summaries. Main charts take col-span-2 or col-span-3.",
+    "spacing": "Maintain rigid hierarchy. gap-4 or gap-6 for dashboard items. Ensure internal padding of cards is p-5 or p-6 to prevent text collision."
+  },
+  "image_urls": {
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1750364567724-b3c7cf0642a7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwzfHxsaXNib24lMjBtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjBidWlsZGluZ3xlbnwwfHx8fDE3ODk4NDQ2NDF8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern architecture's glass facade. Use for the login/auth split-screen background. Apply a heavy overlay (bg-slate-900/60) so it feels corporate and premium."
+    }
+  },
+  "universal_guidelines_for_main_agent": [
+    "NO 'AI slop' aesthetics. Absolutely NO purple-on-white gradients, glowing neon dropshadows, or rounded bubbly buttons. Keep it strictly Swiss, flat, and professional.",
+    "LANGUAGE: The entire UI must be in European Portuguese as specified in the prompt (e.g., Condomínios, Frações, Condóminos, Relatórios).",
+    "CURRENCY: Format all monetary values as EUR (€) in Portuguese standard (e.g., 1.250,00 €).",
+    "DATES: Format all dates in Portuguese standard (DD/MM/YYYY).",
+    "ACCESSIBILITY & CONTRAST: Ensure text over any background (especially status badges) meets WCAG AA contrast. Never use gray-on-gray unreadable text.",
+    "INTERACTIVITY: All buttons and list items must have explicit hover states (e.g., hover:bg-muted).",
+    "TESTING: Every single interactive element and major data block MUST include a 'data-testid' attribute (e.g., data-testid='sidebar-nav-finance').",
+    "ALIGNMENT: Do NOT center-align data tables or forms. Left-align text, right-align numbers. Optical alignment is key."
+  ]
+}

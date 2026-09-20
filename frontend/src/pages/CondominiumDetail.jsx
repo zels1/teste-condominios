@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { formatCurrency, formatDate, TX_TYPE_LABELS } from "@/lib/format";
+import { formatCurrency, formatDate, FIN_TX_LABELS } from "@/lib/format";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   Building2, ArrowLeft, Loader2, DoorOpen, Users, Wallet, Construction, MapPin, Landmark,
 } from "lucide-react";
 
-const CREDIT = new Set(["payment", "credit"]);
+const CREDIT = new Set(["PAYMENT", "CREDIT", "REVERSAL"]);
 
 function Info({ label, value }) {
   return (
@@ -42,8 +42,8 @@ export default function CondominiumDetail() {
     queryFn: () => api.get("/owners", { params: { condominium_id: id } }).then((r) => r.data),
   });
   const { data: txns = [] } = useQuery({
-    queryKey: ["transactions", id],
-    queryFn: () => api.get("/transactions", { params: { condominium_id: id } }).then((r) => r.data),
+    queryKey: ["fin-transactions", id],
+    queryFn: () => api.get("/finance/transactions", { params: { condominium_id: id } }).then((r) => r.data),
   });
 
   if (isLoading || !condo) {
@@ -168,13 +168,13 @@ export default function CondominiumDetail() {
                 </TableRow></TableHeader>
                 <TableBody>
                   {txns.slice(0, 50).map((t) => {
-                    const credit = CREDIT.has(t.type);
+                    const credit = CREDIT.has(t.transaction_type);
                     return (
                       <TableRow key={t.id}>
                         <TableCell className="tabular-nums text-muted-foreground">{formatDate(t.date)}</TableCell>
                         <TableCell className="font-medium">{t.description || "—"}</TableCell>
                         <TableCell className="text-muted-foreground">{t.fraction_identifier}</TableCell>
-                        <TableCell className="text-xs font-semibold">{TX_TYPE_LABELS[t.type]}</TableCell>
+                        <TableCell className="text-xs font-semibold">{FIN_TX_LABELS[t.transaction_type]}</TableCell>
                         <TableCell className={`text-right font-semibold tabular-nums ${credit ? "text-emerald-600" : "text-rose-600"}`}>
                           {credit ? "−" : "+"}{formatCurrency(t.amount)}
                         </TableCell>

@@ -3,13 +3,20 @@ import random
 from datetime import datetime, timezone, timedelta
 
 from database import db
-from auth import hash_password
+from auth import hash_password, verify_password
+from money import to_cents, from_cents
+import finance
+from finance import post_transaction, outstanding_charges, _generate, _next_receipt_number, now_utc, TX_CHARGE, TX_PAYMENT
 from models import (
     ROLE_SUPER_ADMIN, ROLE_PROPERTY_MANAGER, ROLE_ADMIN_STAFF, ROLE_OWNER,
-    TX_CHARGE, TX_PAYMENT,
 )
 
 DEMO_PASSWORD = "Domvus2025!"
+SEED_VERSION = 3
+
+FIN_COLLECTIONS = ["condominiums", "fractions", "owners", "fraction_owners",
+                   "transactions", "payments", "budgets", "charge_configs",
+                   "charge_types", "expenses", "suppliers", "bank_accounts", "counters"]
 
 
 def iso(dt):
@@ -19,169 +26,279 @@ def iso(dt):
 async def seed():
     admin_email = os.environ.get("ADMIN_EMAIL", "master.marques@gmail.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", DEMO_PASSWORD)
+    now = now_utc()
 
     org = await db.organizations.find_one({"slug": "domvus-gestao"})
-    now = datetime.now(timezone.utc)
     if not org:
         res = await db.organizations.insert_one({
-            "name": "DOMVUS Gestão de Condomínios, Lda.",
-            "slug": "domvus-gestao", "nif": "509874321", "city": "Lisboa",
-            "created_at": iso(now), "updated_at": iso(now),
-        })
+            "name": "DOMVUS Gestão de Condomínios, Lda.", "slug": "domvus-gestao",
+            "nif": "509874321", "city": "Lisboa", "seed_version": 0,
+            "created_at": iso(now), "updated_at": iso(now)})
         org_id = str(res.inserted_id)
+        org = {"_id": res.inserted_id, "seed_version": 0}
     else:
         org_id = str(org["_id"])
 
-    # ---------- Super admin (real user) ----------
+    # ---- super admin (real account) ----
     existing_admin = await db.users.find_one({"email": admin_email})
     if not existing_admin:
         await db.users.insert_one({
             "email": admin_email, "password_hash": hash_password(admin_password),
             "name": "Rui Marques", "role": ROLE_SUPER_ADMIN, "token_version": 0,
             "organization_id": org_id, "condominium_id": None, "owner_id": None,
-            "active": True, "created_at": iso(now), "updated_at": iso(now),
-        })
+            "active": True, "created_at": iso(now), "updated_at": iso(now)})
     else:
-        # keep password in sync with .env, ensure org linkage
-        from auth import verify_password
         upd = {"organization_id": org_id, "role": ROLE_SUPER_ADMIN}
         if not verify_password(admin_password, existing_admin["password_hash"]):
             upd["password_hash"] = hash_password(admin_password)
         await db.users.update_one({"email": admin_email}, {"$set": upd})
 
-    # If demo data already present, stop here (idempotent)
-    if await db.condominiums.count_documents({"organization_id": org_id}) > 0:
-        await _write_credentials(admin_email, admin_password)
-        return
-
     async def ensure_user(email, name, role, condominium_id=None, owner_id=None):
-        if await db.users.find_one({"email": email}):
-            return
-        await db.users.insert_one({
-            "email": email, "password_hash": hash_password(DEMO_PASSWORD),
-            "name": name, "role": role, "token_version": 0,
-            "organization_id": org_id, "condominium_id": condominium_id, "owner_id": owner_id,
-            "active": True, "created_at": iso(now), "updated_at": iso(now),
-        })
+        u = await db.users.find_one({"email": email})
+        if not u:
+            await db.users.insert_one({
+                "email": email, "password_hash": hash_password(DEMO_PASSWORD), "name": name,
+                "role": role, "token_version": 0, "organization_id": org_id,
+                "condominium_id": condominium_id, "owner_id": owner_id, "active": True,
+                "created_at": iso(now), "updated_at": iso(now)})
+        else:
+            await db.users.update_one({"email": email}, {"$set": {
+                "organization_id": org_id, "role": role,
+                "condominium_id": condominium_id, "owner_id": owner_id}})
 
     await ensure_user("gestor@domvus.pt", "Ana Sofia Ferreira", ROLE_PROPERTY_MANAGER)
     await ensure_user("staff@domvus.pt", "Pedro Nunes", ROLE_ADMIN_STAFF)
 
-    condo_defs = [
-        {"name": "Condomínio Jardins do Tejo", "address": "Rua do Alecrim, 42",
-         "postal_code": "1200-018", "city": "Lisboa", "nif": "901234567",
-         "num_blocks": 2, "bank_name": "Millennium BCP", "iban": "PT50003300000012345678901"},
-        {"name": "Edifício Foz Atlântico", "address": "Avenida do Brasil, 210",
-         "postal_code": "4150-153", "city": "Porto", "nif": "902345678",
-         "num_blocks": 1, "bank_name": "Novo Banco", "iban": "PT50000700000098765432101"},
-        {"name": "Residências Vale Verde", "address": "Rua das Oliveiras, 8",
-         "postal_code": "2775-405", "city": "Cascais", "nif": "903456789",
-         "num_blocks": 3, "bank_name": "Caixa Geral de Depósitos", "iban": "PT50003500000055556666701"},
-    ]
+    if org.get("seed_version", 0) >= SEED_VERSION:
+        await _write_credentials(admin_email, admin_password)
+        return
 
-    owner_names = [
-        "João Almeida Costa", "Maria Fernanda Silva", "Carlos Manuel Sousa",
-        "Teresa Oliveira Ramos", "António José Pereira", "Beatriz Santos Lopes",
-        "Miguel Ângelo Rodrigues", "Sofia Marques Dias", "Ricardo Nunes Carvalho",
-        "Helena Cristina Gomes", "Fernando Alves Martins", "Inês Cardoso Pinto",
-        "Paulo Jorge Ribeiro", "Luísa Maria Fonseca", "Nuno Filipe Barbosa",
-        "Cristina Isabel Moreira", "André Correia Teixeira", "Marta Sofia Antunes",
+    # wipe finance/domain data for this org (idempotent re-seed)
+    for coll in FIN_COLLECTIONS:
+        await db[coll].delete_many({"organization_id": org_id})
+    await db.counters.delete_many({})
+
+    su = {"organization_id": org_id, "id": "system", "name": "Sistema"}
+    random.seed(42)
+
+    condo_defs = [
+        {"name": "Condomínio Jardins do Tejo", "address": "Rua do Alecrim, 42", "postal_code": "1200-018",
+         "city": "Lisboa", "nif": "901234567", "num_blocks": 2, "bank_name": "Millennium BCP",
+         "iban": "PT50003300000012345678901", "budget": 14400, "n_frac": 8},
+        {"name": "Edifício Foz Atlântico", "address": "Avenida do Brasil, 210", "postal_code": "4150-153",
+         "city": "Porto", "nif": "902345678", "num_blocks": 1, "bank_name": "Novo Banco",
+         "iban": "PT50000700000098765432101", "budget": 10800, "n_frac": 6},
+        {"name": "Residências Vale Verde", "address": "Rua das Oliveiras, 8", "postal_code": "2775-405",
+         "city": "Cascais", "nif": "903456789", "num_blocks": 3, "bank_name": "Caixa Geral de Depósitos",
+         "iban": "PT50003500000055556666701", "budget": 18000, "n_frac": 8},
     ]
+    owner_names = [
+        "João Almeida Costa", "Maria Fernanda Silva", "Carlos Manuel Sousa", "Teresa Oliveira Ramos",
+        "António José Pereira", "Beatriz Santos Lopes", "Miguel Ângelo Rodrigues", "Sofia Marques Dias",
+        "Ricardo Nunes Carvalho", "Helena Cristina Gomes", "Fernando Alves Martins", "Inês Cardoso Pinto",
+        "Paulo Jorge Ribeiro", "Luísa Maria Fonseca", "Nuno Filipe Barbosa", "Cristina Isabel Moreira",
+        "André Correia Teixeira", "Marta Sofia Antunes", "Vasco Lima Rocha", "Patrícia Neves Cunha",
+        "Jorge Manuel Faria", "Susana Gaspar Melo",
+    ]
+    budget_categories = [
+        ("Limpeza", 0.22), ("Elevador", 0.16), ("Seguro", 0.10), ("Eletricidade", 0.14),
+        ("Manutenção", 0.14), ("Administração", 0.12), ("Jardinagem", 0.06),
+        ("Despesas bancárias", 0.02), ("Reparações", 0.04),
+    ]
+    supplier_defs = [
+        ("Limpezas Brilhante, Lda.", "Limpeza", "507111222", "geral@brilhante.pt"),
+        ("ElevaTech Manutenção", "Elevadores", "508333444", "apoio@elevatech.pt"),
+        ("Segura+ Seguros", "Seguros", "509555666", "condominios@seguramais.pt"),
+        ("EDP Comercial", "Eletricidade", "500697256", "empresas@edp.pt"),
+        ("JardimVivo", "Jardinagem", "510777888", "info@jardimvivo.pt"),
+    ]
+    supplier_ids = []
+    for name, svc, nif, email in supplier_defs:
+        r = await db.suppliers.insert_one({
+            "organization_id": org_id, "name": name, "nif": nif, "contact_person": "",
+            "email": email, "phone": "", "address": "", "iban": "", "services": svc,
+            "condominium_ids": [], "created_at": iso(now)})
+        supplier_ids.append((str(r.inserted_id), name, svc))
+
+    cur_year, cur_month = now.year, now.month
+    prev_year = cur_year - 1
     oi = 0
-    first_owner_id = None
-    first_condo_id = None
+    first_owner_id = first_condo_id = None
 
     for ci, cd in enumerate(condo_defs):
         cres = await db.condominiums.insert_one({
-            **cd, "num_fractions": 0, "property_manager": "Ana Sofia Ferreira",
-            "fiscal_year": now.year, "status": "ativo", "notes": "",
-            "organization_id": org_id, "created_at": iso(now), "updated_at": iso(now),
-        })
+            "organization_id": org_id, "name": cd["name"], "address": cd["address"],
+            "postal_code": cd["postal_code"], "city": cd["city"], "nif": cd["nif"],
+            "num_blocks": cd["num_blocks"], "num_fractions": cd["n_frac"],
+            "bank_name": cd["bank_name"], "iban": cd["iban"], "property_manager": "Ana Sofia Ferreira",
+            "fiscal_year": cur_year, "default_due_day": 8, "status": "ativo", "notes": "",
+            "created_at": iso(now), "updated_at": iso(now)})
         condo_id = str(cres.inserted_id)
         if ci == 0:
             first_condo_id = condo_id
 
-        n_frac = random.randint(5, 7)
-        blocks = ["A", "B", "C"][:cd["num_blocks"]]
-        for fi in range(n_frac):
+        await db.bank_accounts.insert_one({
+            "organization_id": org_id, "condominium_id": condo_id, "bank": cd["bank_name"],
+            "iban": cd["iban"], "account_name": cd["name"], "account_number": "",
+            "active": True, "created_at": iso(now)})
+
+        # budget
+        budget_total = cd["budget"]
+        lines = [{"category": cat, "description": "", "amount_cents": to_cents(round(budget_total * w, 2))}
+                 for cat, w in budget_categories]
+        # normalize to exact total
+        diff = to_cents(budget_total) - sum(l["amount_cents"] for l in lines)
+        lines[0]["amount_cents"] += diff
+        await db.budgets.insert_one({
+            "organization_id": org_id, "condominium_id": condo_id, "financial_year": cur_year,
+            "description": f"Orçamento ordinário {cur_year}", "lines": lines,
+            "total_amount_cents": to_cents(budget_total), "status": "approved",
+            "approval_date": iso(now - timedelta(days=200)), "approved_by": "Assembleia Geral",
+            "created_at": iso(now)})
+
+        # charge configs
+        quota_cfg = await db.charge_configs.insert_one({
+            "organization_id": org_id, "condominium_id": condo_id, "name": "Quota Ordinária",
+            "charge_type": "REGULAR_QUOTA", "calculation_method": "PERMILAGE",
+            "amount_cents": to_cents(budget_total), "fraction_amounts_cents": {},
+            "frequency": "monthly", "start_date": None, "end_date": None, "due_day": 8,
+            "active": True, "created_at": iso(now)})
+        reserve_cfg = await db.charge_configs.insert_one({
+            "organization_id": org_id, "condominium_id": condo_id, "name": "Fundo Comum de Reserva",
+            "charge_type": "FUND_RESERVE", "calculation_method": "FIXED_AMOUNT",
+            "amount_cents": to_cents(10), "fraction_amounts_cents": {},
+            "frequency": "monthly", "start_date": None, "end_date": None, "due_day": 8,
+            "active": True, "created_at": iso(now)})
+        await db.charge_types.insert_many([
+            {"organization_id": org_id, "condominium_id": condo_id, "name": "Quota Ordinária",
+             "type": "REGULAR_QUOTA", "description": "", "active": True, "created_at": iso(now)},
+            {"organization_id": org_id, "condominium_id": condo_id, "name": "Fundo Comum de Reserva",
+             "type": "FUND_RESERVE", "description": "", "active": True, "created_at": iso(now)},
+            {"organization_id": org_id, "condominium_id": condo_id, "name": "Quota Extraordinária",
+             "type": "EXTRAORDINARY_CHARGE", "description": "", "active": True, "created_at": iso(now)},
+        ])
+
+        # fractions + owners
+        n = cd["n_frac"]
+        perm_each = round(1000.0 / n, 2)
+        fraction_ids = []
+        for fi in range(n):
             owner_name = owner_names[oi % len(owner_names)]
             oi += 1
             ores = await db.owners.insert_one({
-                "condominium_id": condo_id, "name": owner_name,
+                "organization_id": org_id, "condominium_id": condo_id, "name": owner_name,
                 "nif": str(200000000 + oi), "email": f"condomino{oi}@exemplo.pt",
-                "phone": f"9{random.randint(10000000, 99999999)}",
-                "address": cd["address"], "notes": "",
-                "organization_id": org_id, "created_at": iso(now), "updated_at": iso(now),
-            })
+                "phone": f"9{random.randint(10000000, 99999999)}", "address": cd["address"],
+                "notes": "", "created_at": iso(now), "updated_at": iso(now)})
             owner_id = str(ores.inserted_id)
             if ci == 0 and fi == 0:
                 first_owner_id = owner_id
-
-            block = random.choice(blocks)
-            floor = random.randint(0, 5)
-            monthly_fee = random.choice([45, 50, 55, 60, 65, 75])
-            reserve = round(monthly_fee * 0.1, 2)
+            permill = perm_each if fi < n - 1 else round(1000 - perm_each * (n - 1), 2)
+            block = ["A", "B", "C"][fi % cd["num_blocks"]]
             fres = await db.fractions.insert_one({
-                "condominium_id": condo_id,
-                "identifier": f"{block}{floor}{random.choice(['01', '02', '03'])}",
-                "block": block, "floor": str(floor), "door": str(random.randint(1, 4)),
+                "organization_id": org_id, "condominium_id": condo_id,
+                "identifier": f"{block}{fi // cd['num_blocks'] + 1}{(fi % 3) + 1:02d}",
+                "block": block, "floor": str(fi // cd["num_blocks"] + 1), "door": str((fi % 3) + 1),
                 "fraction_type": "habitacao", "owner_id": owner_id,
-                "occupant_name": owner_name if random.random() > 0.3 else "Arrendatário",
-                "permillage": round(1000 / n_frac, 2), "monthly_fee": monthly_fee,
-                "reserve_fund": reserve, "contact_phone": "", "contact_email": "",
-                "notes": "", "organization_id": org_id,
-                "created_at": iso(now), "updated_at": iso(now),
-            })
-            fraction_id = str(fres.inserted_id)
+                "occupant_name": owner_name, "permillage": permill, "monthly_fee": 0.0,
+                "reserve_fund": 10.0, "contact_phone": "", "contact_email": "", "notes": "",
+                "created_at": iso(now), "updated_at": iso(now)})
+            fid = str(fres.inserted_id)
+            fraction_ids.append(fres.inserted_id)
+            await db.fraction_owners.insert_one({
+                "organization_id": org_id, "fraction_id": fid, "owner_id": owner_id,
+                "ownership_percentage": 100.0, "start_date": iso(now - timedelta(days=800)),
+                "end_date": None, "is_primary": True, "created_at": iso(now)})
 
-            # charges + payments for last 4 months
-            for m in range(4, 0, -1):
-                mdate = (now.replace(day=5) - timedelta(days=30 * m))
-                await db.transactions.insert_one({
-                    "organization_id": org_id, "condominium_id": condo_id,
-                    "fraction_id": fraction_id, "owner_id": owner_id,
-                    "type": TX_CHARGE, "category": "quota",
-                    "description": f"Quota mensal {mdate.strftime('%m/%Y')}",
-                    "amount": float(monthly_fee), "date": iso(mdate),
-                    "reference": f"Q-{mdate.strftime('%Y%m')}", "status": "confirmado",
-                    "created_by_name": "Sistema", "created_at": iso(mdate), "updated_at": iso(mdate),
-                })
-                await db.transactions.insert_one({
-                    "organization_id": org_id, "condominium_id": condo_id,
-                    "fraction_id": fraction_id, "owner_id": owner_id,
-                    "type": TX_CHARGE, "category": "fundo_reserva",
-                    "description": f"Fundo Comum de Reserva {mdate.strftime('%m/%Y')}",
-                    "amount": float(reserve), "date": iso(mdate),
-                    "reference": f"FCR-{mdate.strftime('%Y%m')}", "status": "confirmado",
-                    "created_by_name": "Sistema", "created_at": iso(mdate), "updated_at": iso(mdate),
-                })
-                # ~70% pay fully, some partial, some none (to build outstanding balances)
-                r = random.random()
-                pay = 0.0
-                if r > 0.30:
-                    pay = monthly_fee + reserve
-                elif r > 0.12:
-                    pay = round((monthly_fee + reserve) * 0.5, 2)
-                if pay > 0:
-                    pdate = mdate + timedelta(days=random.randint(2, 12))
-                    await db.transactions.insert_one({
-                        "organization_id": org_id, "condominium_id": condo_id,
-                        "fraction_id": fraction_id, "owner_id": owner_id,
-                        "type": TX_PAYMENT, "category": "quota",
-                        "description": f"Recebimento {mdate.strftime('%m/%Y')}",
-                        "amount": float(pay), "date": iso(pdate),
-                        "reference": f"REC-{pdate.strftime('%Y%m%d')}", "status": "confirmado",
-                        "created_by_name": "Sistema", "created_at": iso(pdate), "updated_at": iso(pdate),
-                    })
+        # generate current-year quotas (Jan..current month) via config -> idempotent
+        cfg_q = await db.charge_configs.find_one({"_id": quota_cfg.inserted_id})
+        cfg_r = await db.charge_configs.find_one({"_id": reserve_cfg.inserted_id})
+        await _generate(su, condo_id, cfg_q, cur_year, 1, cur_month)
+        await _generate(su, condo_id, cfg_r, cur_year, 1, cur_month)
 
-        await db.condominiums.update_one({"_id": cres.inserted_id}, {"$set": {"num_fractions": n_frac}})
+        # backdated previous-year debts for ~30% of fractions (creates 180/365 aging)
+        for idx, frac_oid in enumerate(fraction_ids):
+            frac = await db.fractions.find_one({"_id": frac_oid})
+            annual_share = finance.permillage_cents(to_cents(budget_total), frac.get("permillage", 0))
+            monthly = annual_share // 12
+            if idx % 3 == 0:
+                for m in (7, 9, 11):
+                    due = datetime(prev_year, m, 8, tzinfo=timezone.utc)
+                    await post_transaction(su, condominium_id=condo_id, transaction_type=TX_CHARGE,
+                                           amount_cents=monthly, fraction_id=str(frac_oid),
+                                           owner_id=frac.get("owner_id"), charge_type="REGULAR_QUOTA",
+                                           date=due, due_date=due,
+                                           description=f"Quota Ordinária {finance.MONTHS_PT[m]}/{prev_year}",
+                                           reference=f"REG-{prev_year}{m:02d}",
+                                           generation_key=f"legacy:{condo_id}:{prev_year}:{m}:{frac_oid}")
 
-    # ---------- Owner demo user linked to first owner ----------
+        # payments per fraction profile
+        for idx, frac_oid in enumerate(fraction_ids):
+            fid = str(frac_oid)
+            frac = await db.fractions.find_one({"_id": frac_oid})
+            total_out = sum(rem for _, rem in await outstanding_charges(fid))
+            if total_out <= 0:
+                continue
+            profile = idx % 5
+            if profile == 0:      # fully paid
+                pay = total_out
+            elif profile == 1:    # partial: leave ~40€
+                pay = max(0, total_out - to_cents(40))
+            elif profile == 2:    # overpayment: +25€ credit
+                pay = total_out + to_cents(25)
+            elif profile == 3:    # recent debtor: pay ~70%
+                pay = int(total_out * 0.7)
+            else:                 # old debtor: pay only ~30%
+                pay = int(total_out * 0.3)
+            if pay > 0:
+                await _seed_payment(su, condo_id, frac, pay,
+                                    now - timedelta(days=random.randint(5, 150)))
+
+        # expenses across categories
+        for m in range(max(1, cur_month - 4), cur_month + 1):
+            sup = random.choice(supplier_ids)
+            amt = random.choice([120, 180, 240, 320, 90, 150])
+            await db.expenses.insert_one({
+                "organization_id": org_id, "condominium_id": condo_id, "supplier_id": sup[0],
+                "supplier_name": sup[1], "description": f"{sup[2]} {finance.MONTHS_PT[m]}/{cur_year}",
+                "category": sup[2], "amount_cents": to_cents(amt), "vat_cents": to_cents(round(amt * 0.23, 2)),
+                "invoice_number": f"FT {cur_year}/{random.randint(100, 999)}",
+                "payment_status": random.choice(["pago", "pendente"]),
+                "date": iso(datetime(cur_year, m, random.randint(3, 25), tzinfo=timezone.utc)),
+                "due_date": None, "notes": "", "created_at": iso(now)})
+
     if first_owner_id:
         await ensure_user("condomino@domvus.pt", owner_names[0], ROLE_OWNER,
                           condominium_id=first_condo_id, owner_id=first_owner_id)
 
+    await db.organizations.update_one({"_id": org["_id"]}, {"$set": {"seed_version": SEED_VERSION}})
     await _write_credentials(admin_email, admin_password)
+
+
+async def _seed_payment(su, condo_id, frac, amount_cents, pdate):
+    fid = str(frac["_id"])
+    remaining = amount_cents
+    allocations = []
+    for charge, out_cents in await outstanding_charges(fid):
+        if remaining <= 0:
+            break
+        a = min(remaining, out_cents)
+        allocations.append({"charge_id": str(charge["_id"]), "amount_cents": a})
+        remaining -= a
+    receipt = await _next_receipt_number()
+    tx = await post_transaction(su, condominium_id=condo_id, transaction_type=TX_PAYMENT,
+                                amount_cents=amount_cents, fraction_id=fid,
+                                owner_id=frac.get("owner_id"), date=pdate,
+                                description="Recebimento (transferência)", reference=receipt)
+    pres = await db.payments.insert_one({
+        "organization_id": su["organization_id"], "condominium_id": condo_id, "fraction_id": fid,
+        "owner_id": frac.get("owner_id"), "date": iso(pdate), "amount_cents": amount_cents,
+        "method": "transferencia", "bank_reference": "", "description": "Recebimento",
+        "notes": "", "receipt_number": receipt, "allocation_method": "oldest_first",
+        "allocations": allocations, "credit_remaining_cents": remaining,
+        "transaction_id": str(tx["_id"]), "created_by": "system", "created_by_name": "Sistema",
+        "created_at": iso(now_utc())})
+    await db.transactions.update_one({"_id": tx["_id"]}, {"$set": {"payment_id": str(pres.inserted_id)}})
 
 
 async def _write_credentials(admin_email, admin_password):
@@ -198,13 +315,15 @@ async def _write_credentials(admin_email, admin_password):
 - condomino@domvus.pt — Condómino/Owner (só vê o seu condomínio e fração)
 
 ## Auth endpoints
-- POST /api/auth/register
-- POST /api/auth/login
-- POST /api/auth/logout
+- POST /api/auth/register | login | logout | refresh | forgot-password | reset-password
 - GET  /api/auth/me
-- POST /api/auth/refresh
-- POST /api/auth/forgot-password
-- POST /api/auth/reset-password
+
+## Finance endpoints (all under /api/finance)
+- GET dashboard | aging | debts
+- charge-types, charge-configs, budgets (+/{{id}}/approve), generate-quotas
+- transactions, charges, credits, transactions/{{id}}/reverse
+- payments (+/{{id}}/receipt), statement/{{fraction_id}}, notice/{{fraction_id}}
+- suppliers, expenses, bank-accounts, reports/{{report}}
 """
     try:
         with open("/app/memory/test_credentials.md", "w") as f:

@@ -14,14 +14,19 @@ import Condominiums from "@/pages/Condominiums";
 import CondominiumDetail from "@/pages/CondominiumDetail";
 import Fractions from "@/pages/Fractions";
 import Owners from "@/pages/Owners";
-import Finance from "@/pages/Finance";
 import Users from "@/pages/Users";
+import Suppliers from "@/pages/Suppliers";
+import FinanceOverview from "@/pages/FinanceOverview";
+import ContaCorrente from "@/pages/ContaCorrente";
+import Quotas from "@/pages/Quotas";
+import Recebimentos from "@/pages/Recebimentos";
+import Dividas from "@/pages/Dividas";
+import Despesas from "@/pages/Despesas";
+import Orcamento from "@/pages/Orcamento";
+import Relatorios from "@/pages/Relatorios";
+import MinhaConta from "@/pages/MinhaConta";
 
 const SOON = [
-  ["/fornecedores", "Fornecedores", "Gestão de fornecedores e prestadores de serviços"],
-  ["/recebimentos", "Recebimentos", "Registo e conciliação de recebimentos"],
-  ["/despesas", "Despesas", "Registo de despesas e faturas de fornecedores"],
-  ["/relatorios", "Relatórios", "Relatórios e demonstrações financeiras"],
   ["/ocorrencias", "Ocorrências", "Gestão de ocorrências e reclamações"],
   ["/manutencao", "Manutenção", "Planeamento e histórico de manutenção"],
   ["/comunicacoes", "Comunicações", "Centro de comunicações com condóminos"],
@@ -46,8 +51,17 @@ function App() {
               <Route path="/condominios/:id" element={<CondominiumDetail />} />
               <Route path="/fracoes" element={<Fractions />} />
               <Route path="/condominos" element={<Owners />} />
-              <Route path="/contas-correntes" element={<Finance />} />
+              <Route path="/fornecedores" element={<Suppliers />} />
+              <Route path="/financas" element={<FinanceOverview />} />
+              <Route path="/contas-correntes" element={<ContaCorrente />} />
+              <Route path="/quotas" element={<Quotas />} />
+              <Route path="/recebimentos" element={<Recebimentos />} />
+              <Route path="/dividas" element={<Dividas />} />
+              <Route path="/despesas" element={<Despesas />} />
+              <Route path="/orcamento" element={<Orcamento />} />
+              <Route path="/relatorios" element={<Relatorios />} />
               <Route path="/utilizadores" element={<Users />} />
+              <Route path="/minha-conta" element={<MinhaConta />} />
               {SOON.map(([path, title, sub]) => (
                 <Route key={path} path={path} element={<ComingSoon title={title} subtitle={sub} />} />
               ))}

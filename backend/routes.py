@@ -119,6 +119,8 @@ async def list_fractions(user: dict = Depends(get_current_user), condominium_id:
     fractions = [clean(f) async for f in db.fractions.find(org_filter(user, base)).sort("identifier", 1)]
     if restricted is not None:
         fractions = [f for f in fractions if f["condominium_id"] in restricted]
+    if user.get("role") == ROLE_OWNER and user.get("owner_id"):
+        fractions = [f for f in fractions if f.get("owner_id") == user.get("owner_id")]
     owners = {o["id"]: o["name"] async for o in _owner_map(user)}
     condos = {c["id"]: c["name"] async for c in _condo_map(user)}
     for f in fractions:

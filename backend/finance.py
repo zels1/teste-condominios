@@ -871,9 +871,74 @@ async def finance_dashboard(user=Depends(get_current_user), condominium_id: Opti
     }
 
 
-# ----------------------------------------------------------------------------
-# SUPPLIERS
-# ----------------------------------------------------------------------------
+@router.get("/owner-summary")
+async def owner_summary(user=Depends(get_current_user)):
+    """Personalized summary for a condómino: own fractions, balances, next due,
+    recent payments and condominium info. Strictly own-owner scoped."""
+    if user.get("role") != ROLE_OWNER or not user.get("owner_id"):
+        raise HTTPException(status_code=403, detail="Apenas disponível para condóminos")
+    now = now_utc()
+    fractions = [f async for f in db.fractions.find(
+        org_filter(user, {"owner_id": user["owner_id"]})).sort("identifier", 1)]
+    cmap = {str(c["_id"]): c async for c in db.condominiums.find(org_filter(user))}
+
+    frac_rows = []
+    total_balance = 0
+    next_due = None
+    for f in fractions:
+        fid = str(f["_id"])
+        bal = await fraction_balance_cents(fid)
+        total_balance += bal
+        oc = await outstanding_charges(fid)
+        overdue_cents = 0
+        for t, rem in oc:
+            due = parse_dt(t.get("due_date")) or parse_dt(t.get("date")) or now
+            if due < now:
+                overdue_cents += rem
+            if next_due is None or (parse_dt(t.get("due_date")) or now) < parse_dt(next_due["due_date"]):
+                next_due = {"due_date": t.get("due_date") or t.get("date"),
+                            "amount": from_cents(rem), "description": t.get("description", "Quota"),
+                            "fraction_identifier": f["identifier"]}
+        condo = cmap.get(f.get("condominium_id"))
+        frac_rows.append({
+            "id": fid, "identifier": f["identifier"], "permillage": f.get("permillage", 0),
+            "condominium_id": f.get("condominium_id"),
+            "condominium_name": condo["name"] if condo else "—",
+            "balance": from_cents(bal), "outstanding": from_cents(max(0, bal)),
+            "credit": from_cents(max(0, -bal)), "overdue": from_cents(overdue_cents),
+        })
+
+    my_condos = [{"id": str(c["_id"]), "name": c["name"], "address": c.get("address", ""),
+                  "city": c.get("city", ""), "postal_code": c.get("postal_code", "")}
+                 for cid, c in cmap.items() if any(fr["condominium_id"] == cid for fr in frac_rows)]
+
+    recent_payments = []
+    async for p in db.payments.find(org_filter(user, {"owner_id": user["owner_id"]})).sort("date", -1).limit(5):
+        recent_payments.append({"id": str(p["_id"]), "date": p["date"],
+                                "amount": from_cents(p["amount_cents"]),
+                                "method": p.get("method"), "receipt_number": p.get("receipt_number")})
+
+    unread_comms = await db.communications.count_documents(
+        org_filter(user, {"recipient_owner_ids": user["owner_id"]}))
+    open_occurrences = await db.occurrences.count_documents(org_filter(user, {
+        "condominium_id": user.get("condominium_id"),
+        "fraction_id": {"$in": [fr["id"] for fr in frac_rows]},
+        "status": {"$nin": ["resolved", "closed"]}}))
+
+    return {
+        "owner_name": user.get("name"),
+        "totals": {
+            "balance": from_cents(total_balance),
+            "outstanding": from_cents(max(0, total_balance)),
+            "credit": from_cents(max(0, -total_balance)),
+            "fractions": len(frac_rows),
+        },
+        "next_due": next_due,
+        "fractions": frac_rows,
+        "condominiums": my_condos,
+        "recent_payments": recent_payments,
+        "counts": {"communications": unread_comms, "open_occurrences": open_occurrences},
+    }
 class SupplierIn(BaseModel):
     name: str
     nif: str = ""

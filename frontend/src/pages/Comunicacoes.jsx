@@ -15,8 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Megaphone, Plus, Loader2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Comunicacoes() {
+  const { isStaff } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ condominium_id: "", subject: "", message: "" });
@@ -32,7 +34,8 @@ export default function Comunicacoes() {
 
   return (
     <div data-testid="comunicacoes-page">
-      <PageHeader title="Comunicações" subtitle="Mensagens aos condóminos">
+      <PageHeader title="Comunicações" subtitle={isStaff ? "Mensagens aos condóminos" : "Avisos e comunicados do seu condomínio"}>
+        {isStaff && (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button data-testid="compose-btn"><Plus className="mr-2 h-4 w-4" /> Nova Comunicação</Button></DialogTrigger>
           <DialogContent className="max-w-lg">
@@ -50,16 +53,17 @@ export default function Comunicacoes() {
             </form>
           </DialogContent>
         </Dialog>
+        )}
       </PageHeader>
       {isLoading ? <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         : items.length === 0 ? <EmptyState icon={Megaphone} title="Sem comunicações" testid="comm-empty" />
         : <Card className="border-border shadow-none"><Table data-testid="communications-table">
-            <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Assunto</TableHead><TableHead>Condomínio</TableHead><TableHead className="text-right">Destinatários</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Assunto</TableHead><TableHead>Condomínio</TableHead>{isStaff && <TableHead className="text-right">Destinatários</TableHead>}<TableHead>Estado</TableHead></TableRow></TableHeader>
             <TableBody>{items.map((c) => (
               <TableRow key={c.id} data-testid={`comm-row-${c.id}`}>
                 <TableCell className="tabular-nums text-muted-foreground">{formatDateTime(c.created_at)}</TableCell>
                 <TableCell className="font-semibold">{c.subject}</TableCell><TableCell className="text-muted-foreground">{c.condominium_name}</TableCell>
-                <TableCell className="text-right tabular-nums">{c.recipient_count}</TableCell><TableCell><StatusBadge status={c.status === "sent" ? "confirmado" : c.status} label={c.status === "sent" ? "Enviada" : "Rascunho"} /></TableCell>
+                {isStaff && <TableCell className="text-right tabular-nums">{c.recipient_count}</TableCell>}<TableCell><StatusBadge status={c.status === "sent" ? "confirmado" : c.status} label={c.status === "sent" ? "Enviada" : "Rascunho"} /></TableCell>
               </TableRow>))}</TableBody></Table></Card>}
     </div>
   );

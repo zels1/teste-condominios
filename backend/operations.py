@@ -65,6 +65,18 @@ async def owner_condo_ids(user):
     return None
 
 
+async def owner_fraction_ids(user):
+    """Fraction ids belonging to the logged-in owner (empty set for non-owners)."""
+    if user.get("role") != ROLE_OWNER or not user.get("owner_id"):
+        return set()
+    return {str(f["_id"]) async for f in db.fractions.find(
+        {"organization_id": user.get("organization_id"), "owner_id": user.get("owner_id")})}
+
+
+# Categories that must never be exposed to owners via condominium-level scope
+CONFIDENTIAL_CATEGORIES = {"confidencial", "pessoal", "rh", "recursos humanos", "privado"}
+
+
 def scope_query(user, base=None):
     q = org_filter(user, base)
     return q
@@ -113,13 +125,17 @@ async def list_occurrences(user=Depends(get_current_user), condominium_id: Optio
     if priority: base["priority"] = priority
     if supplier_id: base["supplier_id"] = supplier_id
     oc = await owner_condo_ids(user)
+    ofid = await owner_fraction_ids(user)
     names = await _name_map(user)
     out = []
     async for o in db.occurrences.find(scope_query(user, base)).sort("created_at", -1):
         if oc is not None and o.get("condominium_id") not in oc:
             continue
-        if user.get("role") == ROLE_OWNER and o.get("reported_by") != user.get("id") and o.get("fraction_id"):
-            frac = await db.fractions.find_one({"_id": oid(o["fraction_id"])}) if o.get("fraction_id") else None
+        # Owner scope: only own reports, common-area (no fraction) or own-fraction occurrences
+        if user.get("role") == ROLE_OWNER:
+            fid = o.get("fraction_id")
+            if fid and fid not in ofid and o.get("reported_by") != user.get("id"):
+                continue
         p = occ_public(o, names)
         if search and search.lower() not in (p["title"] + p.get("description", "")).lower():
             continue
@@ -155,6 +171,10 @@ async def get_occurrence(oid_: str, user=Depends(get_current_user)):
     if not o:
         raise HTTPException(status_code=404, detail="Ocorrência não encontrada")
     await owner_guard(user, condominium_id=o["condominium_id"])
+    if user.get("role") == ROLE_OWNER:
+        fid = o.get("fraction_id")
+        if fid and o.get("reported_by") != user.get("id") and fid not in await owner_fraction_ids(user):
+            raise HTTPException(status_code=403, detail="Sem acesso a esta ocorrência")
     names = await _name_map(user)
     p = occ_public(o, names)
     p["timeline"] = [clean(h) async for h in db.occurrence_status_history.find({"occurrence_id": oid_}).sort("created_at", 1)]
@@ -413,12 +433,15 @@ async def _can_access_document(user, d):
         return False
     if user.get("role") in STAFF_ROLES:
         return True
-    # owner: only own condo/fraction/owner-related
+    # owner: strictly own-fraction, own-owner, or non-confidential condominium-level docs
     et, ei = d.get("related_entity_type"), d.get("related_entity_id")
+    if et == "owner":
+        return ei == user.get("owner_id")
+    if et == "fraction":
+        return ei in await owner_fraction_ids(user)
+    # condominium-level or unscoped: only same condo and not a confidential category
     if d.get("condominium_id") and d.get("condominium_id") == user.get("condominium_id"):
-        return et != "owner" or ei == user.get("owner_id")
-    if et == "owner" and ei == user.get("owner_id"):
-        return True
+        return (d.get("category") or "").strip().lower() not in CONFIDENTIAL_CATEGORIES
     return False
 
 

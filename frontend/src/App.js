@@ -10,6 +10,8 @@ import Login from "@/pages/Login";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import Dashboard from "@/pages/Dashboard";
+import OwnerDashboard from "@/pages/OwnerDashboard";
+import { useAuth } from "@/context/AuthContext";
 import Condominiums from "@/pages/Condominiums";
 import CondominiumDetail from "@/pages/CondominiumDetail";
 import Fractions from "@/pages/Fractions";
@@ -38,6 +40,11 @@ const SOON = [
   ["/definicoes", "Definições", "Configurações da plataforma"],
 ];
 
+function DashboardRouter() {
+  const { user } = useAuth();
+  return user?.role === "owner" ? <OwnerDashboard /> : <Dashboard />;
+}
+
 function App() {
   return (
     <div className="App">
@@ -49,7 +56,7 @@ function App() {
             <Route path="/reset-password" element={<ResetPassword />} />
 
             <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/dashboard" element={<DashboardRouter />} />
               <Route path="/condominios" element={<Condominiums />} />
               <Route path="/condominios/:id" element={<CondominiumDetail />} />
               <Route path="/fracoes" element={<Fractions />} />

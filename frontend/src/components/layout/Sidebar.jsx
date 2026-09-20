@@ -58,6 +58,7 @@ const OWNER_GROUPS = [
     items: [
       { to: "/minha-conta", icon: UserCircle, label: "Minha Conta", testid: "nav-minha-conta" },
       { to: "/ocorrencias", icon: AlertTriangle, label: "Ocorrências", testid: "nav-ocorrencias" },
+      { to: "/comunicacoes", icon: Megaphone, label: "Comunicações", testid: "nav-comunicacoes" },
       { to: "/documentos", icon: FolderOpen, label: "Documentos", testid: "nav-documentos" },
     ],
   },

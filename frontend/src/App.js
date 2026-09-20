@@ -25,13 +25,16 @@ import Despesas from "@/pages/Despesas";
 import Orcamento from "@/pages/Orcamento";
 import Relatorios from "@/pages/Relatorios";
 import MinhaConta from "@/pages/MinhaConta";
+import Ocorrencias from "@/pages/Ocorrencias";
+import OcorrenciaDetail from "@/pages/OcorrenciaDetail";
+import Manutencao from "@/pages/Manutencao";
+import Contratos from "@/pages/Contratos";
+import Comunicacoes from "@/pages/Comunicacoes";
+import Assembleias from "@/pages/Assembleias";
+import Documentos from "@/pages/Documentos";
+import Tarefas from "@/pages/Tarefas";
 
 const SOON = [
-  ["/ocorrencias", "Ocorrências", "Gestão de ocorrências e reclamações"],
-  ["/manutencao", "Manutenção", "Planeamento e histórico de manutenção"],
-  ["/comunicacoes", "Comunicações", "Centro de comunicações com condóminos"],
-  ["/assembleias", "Assembleias", "Convocatórias, atas e deliberações"],
-  ["/documentos", "Documentos", "Gestão documental do condomínio"],
   ["/definicoes", "Definições", "Configurações da plataforma"],
 ];
 
@@ -62,6 +65,14 @@ function App() {
               <Route path="/relatorios" element={<Relatorios />} />
               <Route path="/utilizadores" element={<Users />} />
               <Route path="/minha-conta" element={<MinhaConta />} />
+              <Route path="/ocorrencias" element={<Ocorrencias />} />
+              <Route path="/ocorrencias/:id" element={<OcorrenciaDetail />} />
+              <Route path="/manutencao" element={<Manutencao />} />
+              <Route path="/contratos" element={<Contratos />} />
+              <Route path="/comunicacoes" element={<Comunicacoes />} />
+              <Route path="/assembleias" element={<Assembleias />} />
+              <Route path="/documentos" element={<Documentos />} />
+              <Route path="/tarefas" element={<Tarefas />} />
               {SOON.map(([path, title, sub]) => (
                 <Route key={path} path={path} element={<ComingSoon title={title} subtitle={sub} />} />
               ))}

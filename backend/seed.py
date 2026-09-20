@@ -12,11 +12,15 @@ from models import (
 )
 
 DEMO_PASSWORD = "Domvus2025!"
-SEED_VERSION = 3
+SEED_VERSION = 4
 
 FIN_COLLECTIONS = ["condominiums", "fractions", "owners", "fraction_owners",
                    "transactions", "payments", "budgets", "charge_configs",
-                   "charge_types", "expenses", "suppliers", "bank_accounts", "counters"]
+                   "charge_types", "expenses", "suppliers", "bank_accounts", "counters",
+                   "occurrences", "occurrence_comments", "occurrence_status_history",
+                   "maintenance", "contracts", "documents", "communications",
+                   "communication_templates", "assemblies", "assembly_attendees",
+                   "tasks", "notifications", "activities"]
 
 
 def iso(dt):
@@ -271,6 +275,7 @@ async def seed():
         await ensure_user("condomino@domvus.pt", owner_names[0], ROLE_OWNER,
                           condominium_id=first_condo_id, owner_id=first_owner_id)
 
+    await _seed_operations(su, org_id, now)
     await db.organizations.update_one({"_id": org["_id"]}, {"$set": {"seed_version": SEED_VERSION}})
     await _write_credentials(admin_email, admin_password)
 
@@ -299,6 +304,133 @@ async def _seed_payment(su, condo_id, frac, amount_cents, pdate):
         "transaction_id": str(tx["_id"]), "created_by": "system", "created_by_name": "Sistema",
         "created_at": iso(now_utc())})
     await db.transactions.update_one({"_id": tx["_id"]}, {"$set": {"payment_id": str(pres.inserted_id)}})
+
+
+async def _seed_operations(su, org_id, now):
+    from finance import now_utc
+    # communication templates
+    from operations import DEFAULT_TEMPLATES
+    for t in DEFAULT_TEMPLATES:
+        await db.communication_templates.insert_one({**t, "organization_id": org_id, "active": True,
+                                                     "created_at": iso(now)})
+
+    condos = [c async for c in db.condominiums.find({"organization_id": org_id})]
+    suppliers = [s async for s in db.suppliers.find({"organization_id": org_id})]
+    staff = [u async for u in db.users.find({"organization_id": org_id, "role": {"$in": ["property_manager", "admin_staff"]}})]
+    staff_id = str(staff[0]["_id"]) if staff else su["id"]
+
+    occ_defs = [
+        ("Fuga de água na garagem", "Water", "urgent", "new"),
+        ("Elevador avariado", "Lift", "urgent", "assigned"),
+        ("Falha de iluminação no hall", "Electricity", "high", "in_progress"),
+        ("Portão da garagem não abre", "Access", "high", "waiting_supplier"),
+        ("Infiltração no telhado", "Construction", "high", "assigned"),
+        ("Intercomunicador sem som", "Electricity", "normal", "new"),
+        ("Limpeza deficiente das escadas", "Cleaning", "normal", "resolved"),
+        ("Reclamação de ruído", "Noise", "low", "closed"),
+        ("Jardim por aparar", "Gardening", "low", "new"),
+        ("Dano em zona comum", "Construction", "normal", "in_progress"),
+    ]
+    cat_map = {}
+    for ci, condo in enumerate(condos):
+        cid = str(condo["_id"])
+        fracs = [f async for f in db.fractions.find({"condominium_id": cid})]
+        for i in range(7):
+            title, cat, prio, status = occ_defs[(ci * 3 + i) % len(occ_defs)]
+            frac = fracs[i % len(fracs)] if fracs else None
+            created = now - timedelta(days=(i * 4 + ci * 2))
+            sup = suppliers[i % len(suppliers)] if suppliers else None
+            doc = {"organization_id": org_id, "condominium_id": cid,
+                   "fraction_id": str(frac["_id"]) if frac else None,
+                   "reported_by": su["id"], "reported_by_name": "Sistema",
+                   "assigned_to": staff_id if status not in ("new",) else None,
+                   "supplier_id": str(sup["_id"]) if sup and status in ("waiting_supplier", "in_progress", "resolved", "closed") else None,
+                   "title": title, "description": f"{title} — reportado no condomínio.", "category": cat,
+                   "priority": prio, "status": status, "location": "Zona comum",
+                   "estimated_cost_cents": to_cents((i + 1) * 50),
+                   "actual_cost_cents": to_cents((i + 1) * 45) if status in ("resolved", "closed") else 0,
+                   "created_at": iso(created), "updated_at": iso(created),
+                   "resolved_at": iso(created + timedelta(days=3)) if status in ("resolved", "closed") else None,
+                   "closed_at": iso(created + timedelta(days=4)) if status == "closed" else None}
+            r = await db.occurrences.insert_one(doc)
+            await db.occurrence_status_history.insert_one({"occurrence_id": str(r.inserted_id), "status": "new",
+                                                          "user_name": "Sistema", "created_at": iso(created)})
+            if status != "new":
+                await db.occurrence_status_history.insert_one({"occurrence_id": str(r.inserted_id), "status": status,
+                                                              "user_name": "Sistema", "created_at": iso(created + timedelta(days=1))})
+            await db.activities.insert_one({"organization_id": org_id, "condominium_id": cid, "user_id": su["id"],
+                                            "user_name": "Sistema", "action": "create", "entity": "occurrence",
+                                            "entity_id": str(r.inserted_id), "description": f"Ocorrência criada: {title}",
+                                            "created_at": iso(created)})
+
+        # maintenance
+        maint_defs = [("Inspeção do elevador", "Lift", "annual", 20), ("Manutenção extintores", "Security", "annual", -10),
+                      ("Limpeza depósito de água", "Cleaning", "biannual", 5), ("Manutenção de jardim", "Gardening", "monthly", 40)]
+        for j, (mt, mcat, freq, off) in enumerate(maint_defs):
+            sup = suppliers[j % len(suppliers)] if suppliers else None
+            await db.maintenance.insert_one({"organization_id": org_id, "condominium_id": cid,
+                "supplier_id": str(sup["_id"]) if sup else None, "contract_id": None, "title": mt,
+                "description": "", "category": mcat, "maint_type": "preventive", "frequency": freq,
+                "next_date": iso(now + timedelta(days=off)), "last_date": iso(now - timedelta(days=180)),
+                "status": "scheduled", "estimated_cost_cents": to_cents(150), "notes": "",
+                "created_at": iso(now), "updated_at": iso(now)})
+
+        # contracts
+        con_defs = [("Contrato de manutenção de elevador", "Lift", 25), ("Apólice de seguro do condomínio", "Insurance", 200),
+                    ("Contrato de limpeza", "Cleaning", 400)]
+        for k, (ct, ccat, days) in enumerate(con_defs):
+            sup = suppliers[k % len(suppliers)] if suppliers else None
+            await db.contracts.insert_one({"organization_id": org_id, "condominium_id": cid,
+                "supplier_id": str(sup["_id"]) if sup else None, "title": ct, "category": ccat,
+                "contract_number": f"C-{2025}-{ci}{k}", "start_date": iso(now - timedelta(days=300)),
+                "end_date": iso(now + timedelta(days=days)), "value_cents": to_cents(1200),
+                "payment_frequency": "annual", "status": "active", "description": "", "notes": "",
+                "created_at": iso(now), "updated_at": iso(now)})
+
+        # assembly (upcoming)
+        await db.assemblies.insert_one({"organization_id": org_id, "condominium_id": cid,
+            "date": (now + timedelta(days=20 + ci * 5)).isoformat()[:10], "time": "18:30", "location": "Salão do condomínio",
+            "assembly_type": "ordinary", "status": "scheduled",
+            "agenda": [{"number": 1, "title": "Aprovação da ata anterior", "description": "", "decision": "", "status": "pending"},
+                       {"number": 2, "title": "Aprovação de contas", "description": "", "decision": "", "status": "pending"},
+                       {"number": 3, "title": "Aprovação do orçamento", "description": "", "decision": "", "status": "pending"}],
+            "notes": "", "created_at": iso(now)})
+
+        # a communication
+        owners = [o async for o in db.owners.find({"condominium_id": cid})]
+        await db.communications.insert_one({"organization_id": org_id, "condominium_id": cid, "sender": "Ana Sofia Ferreira",
+            "sender_id": staff_id, "subject": f"Comunicado — {condo['name']}", "message": "Informamos os senhores condóminos sobre trabalhos de manutenção.",
+            "type": "email", "status": "sent", "target_type": "condominium",
+            "recipient_owner_ids": [str(o["_id"]) for o in owners], "recipient_count": len(owners),
+            "created_at": iso(now - timedelta(days=ci + 1))})
+
+    # tasks (some overdue)
+    task_defs = [("Contactar fornecedor do elevador", "high", -2), ("Preparar convocatória de assembleia", "normal", 3),
+                 ("Rever orçamento anual", "normal", 7), ("Enviar avisos de pagamento", "urgent", -1),
+                 ("Agendar limpeza de depósitos", "low", 14)]
+    for ti, (tt, prio, off) in enumerate(task_defs):
+        cid = str(condos[ti % len(condos)]["_id"]) if condos else None
+        await db.tasks.insert_one({"organization_id": org_id, "title": tt, "description": "", "assigned_to": staff_id,
+            "priority": prio, "status": "todo" if off != 14 else "in_progress", "due_date": iso(now + timedelta(days=off)),
+            "condominium_id": cid, "related_entity_type": None, "related_entity_id": None,
+            "created_by": su["id"], "created_by_name": "Sistema", "created_at": iso(now), "updated_at": iso(now)})
+
+    # a document (small text) on first condo
+    if condos:
+        import base64 as _b64
+        content = _b64.b64encode(b"Regulamento do Condominio - DOMVUS (demo)").decode()
+        await db.documents.insert_one({"organization_id": org_id, "name": "Regulamento do Condomínio",
+            "file_name": "regulamento.txt", "file_type": "text/plain", "file_size": 41, "category": "Legal",
+            "description": "Regulamento interno (demo)", "uploaded_by": su["id"], "uploaded_by_name": "Sistema",
+            "condominium_id": str(condos[0]["_id"]), "related_entity_type": "condominium",
+            "related_entity_id": str(condos[0]["_id"]), "version": 1, "data_b64": content,
+            "created_at": iso(now)})
+
+    # notifications for staff
+    for u in staff:
+        await db.notifications.insert_one({"organization_id": org_id, "user_id": str(u["_id"]), "type": "occurrence",
+            "title": "Ocorrências urgentes por resolver", "message": "Existem ocorrências urgentes em aberto.",
+            "related_entity": "occurrence", "related_entity_id": "", "read_at": None, "created_at": iso(now)})
 
 
 async def _write_credentials(admin_email, admin_password):

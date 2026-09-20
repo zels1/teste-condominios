@@ -33,13 +33,15 @@ const STAFF_GROUPS = [
   {
     label: "Operações",
     items: [
-      { to: "/ocorrencias", icon: AlertTriangle, label: "Ocorrências", testid: "nav-ocorrencias", soon: true },
-      { to: "/manutencao", icon: Wrench, label: "Manutenção", testid: "nav-manutencao", soon: true },
-      { to: "/comunicacoes", icon: Megaphone, label: "Comunicações", testid: "nav-comunicacoes", soon: true },
-      { to: "/assembleias", icon: Gavel, label: "Assembleias", testid: "nav-assembleias", soon: true },
+      { to: "/ocorrencias", icon: AlertTriangle, label: "Ocorrências", testid: "nav-ocorrencias" },
+      { to: "/manutencao", icon: Wrench, label: "Manutenção", testid: "nav-manutencao" },
+      { to: "/contratos", icon: FileStack, label: "Contratos", testid: "nav-contratos" },
+      { to: "/comunicacoes", icon: Megaphone, label: "Comunicações", testid: "nav-comunicacoes" },
+      { to: "/assembleias", icon: Gavel, label: "Assembleias", testid: "nav-assembleias" },
+      { to: "/tarefas", icon: Wrench, label: "Tarefas", testid: "nav-tarefas" },
     ],
   },
-  { label: "Documentos", items: [{ to: "/documentos", icon: FolderOpen, label: "Documentos", testid: "nav-documentos", soon: true }] },
+  { label: "Documentos", items: [{ to: "/documentos", icon: FolderOpen, label: "Documentos", testid: "nav-documentos" }] },
   {
     label: "Administração",
     items: [
@@ -55,7 +57,8 @@ const OWNER_GROUPS = [
     label: "A minha área",
     items: [
       { to: "/minha-conta", icon: UserCircle, label: "Minha Conta", testid: "nav-minha-conta" },
-      { to: "/documentos", icon: FolderOpen, label: "Documentos", testid: "nav-documentos", soon: true },
+      { to: "/ocorrencias", icon: AlertTriangle, label: "Ocorrências", testid: "nav-ocorrencias" },
+      { to: "/documentos", icon: FolderOpen, label: "Documentos", testid: "nav-documentos" },
     ],
   },
 ];

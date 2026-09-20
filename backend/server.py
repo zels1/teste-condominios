@@ -13,6 +13,7 @@ from database import client, create_indexes
 import auth
 import routes
 import finance
+import operations
 from seed import seed
 
 logging.basicConfig(level=logging.INFO,
@@ -24,6 +25,7 @@ app = FastAPI(title="DOMVUS API")
 app.include_router(auth.router)
 app.include_router(routes.router)
 app.include_router(finance.router)
+app.include_router(operations.router)
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 app.add_middleware(

@@ -43,6 +43,10 @@ export default function Dashboard() {
     queryKey: ["fin-dashboard", condo],
     queryFn: () => api.get("/finance/dashboard", { params: condo !== "all" ? { condominium_id: condo } : {} }).then((r) => r.data),
   });
+  const { data: ops } = useQuery({
+    queryKey: ["ops-dashboard", condo],
+    queryFn: () => api.get("/ops/dashboard", { params: condo !== "all" ? { condominium_id: condo } : {} }).then((r) => r.data),
+  });
 
   if (isLoading || !data) {
     return <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -80,6 +84,18 @@ export default function Dashboard() {
         <KPI label="Condóminos" value={t.owners} icon={Users} money={false} />
         <KPI label="Saldo credor" value={t.credit_balance} icon={Wallet} tone="emerald" />
       </div>
+
+      {ops && (
+        <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7" data-testid="ops-cards">
+          <KPI label="Ocorrências abertas" value={ops.open_occurrences} icon={AlertTriangle} tone="amber" money={false} />
+          <KPI label="Ocorrências urgentes" value={ops.urgent_occurrences} icon={AlertTriangle} tone="rose" money={false} />
+          <KPI label="Manutenção em atraso" value={ops.overdue_maintenance} icon={AlertTriangle} tone="rose" money={false} />
+          <KPI label="Manutenção a vencer" value={ops.upcoming_maintenance} icon={CheckCircle2} money={false} />
+          <KPI label="Contratos a expirar" value={ops.contracts_expiring} icon={AlertTriangle} tone="amber" money={false} />
+          <KPI label="Tarefas pendentes" value={ops.pending_tasks} icon={CheckCircle2} money={false} />
+          <KPI label="Assembleias" value={ops.upcoming_assemblies} icon={CheckCircle2} money={false} />
+        </div>
+      )}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="border-border p-5 shadow-none lg:col-span-2" data-testid="chart-income-expense">

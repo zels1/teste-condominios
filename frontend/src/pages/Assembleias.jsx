@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -17,6 +19,8 @@ import { Gavel, Plus, Loader2 } from "lucide-react";
 
 export default function Assembleias() {
   const qc = useQueryClient();
+  const nav = useNavigate();
+  const { isStaff } = useAuth();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ condominium_id: "", date: "", time: "18:30", location: "", assembly_type: "ordinary", agendaText: "Aprovação da ata anterior\nAprovação de contas\nAprovação do orçamento" });
   const { data: condos = [] } = useQuery({ queryKey: ["condos"], queryFn: () => api.get("/condominiums").then((r) => r.data) });
@@ -32,7 +36,8 @@ export default function Assembleias() {
 
   return (
     <div data-testid="assembleias-page">
-      <PageHeader title="Assembleias" subtitle="Convocatórias e ordens de trabalhos">
+      <PageHeader title="Assembleias" subtitle={isStaff ? "Convocatórias e ordens de trabalhos" : "As assembleias do seu condomínio"}>
+        {isStaff && (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button data-testid="add-assembly-btn"><Plus className="mr-2 h-4 w-4" /> Nova Assembleia</Button></DialogTrigger>
           <DialogContent className="max-w-lg">
@@ -52,11 +57,12 @@ export default function Assembleias() {
             </form>
           </DialogContent>
         </Dialog>
+        )}
       </PageHeader>
       {isLoading ? <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         : items.length === 0 ? <EmptyState icon={Gavel} title="Sem assembleias" testid="assembly-empty" />
         : <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{items.map((a) => (
-            <Card key={a.id} className="border-border p-5 shadow-none" data-testid={`assembly-card-${a.id}`}>
+            <Card key={a.id} className="cursor-pointer border-border p-5 shadow-none transition-colors hover:border-foreground/30 hover:bg-muted/30" onClick={() => nav(`/assembleias/${a.id}`)} data-testid={`assembly-card-${a.id}`}>
               <div className="flex items-center justify-between">
                 <h3 className="font-display text-base font-semibold">{a.condominium_name}</h3><StatusBadge status={a.status} />
               </div>

@@ -33,6 +33,7 @@ import Manutencao from "@/pages/Manutencao";
 import Contratos from "@/pages/Contratos";
 import Comunicacoes from "@/pages/Comunicacoes";
 import Assembleias from "@/pages/Assembleias";
+import AssembleiaDetail from "@/pages/AssembleiaDetail";
 import Documentos from "@/pages/Documentos";
 import Tarefas from "@/pages/Tarefas";
 
@@ -78,6 +79,7 @@ function App() {
               <Route path="/contratos" element={<Contratos />} />
               <Route path="/comunicacoes" element={<Comunicacoes />} />
               <Route path="/assembleias" element={<Assembleias />} />
+              <Route path="/assembleias/:id" element={<AssembleiaDetail />} />
               <Route path="/documentos" element={<Documentos />} />
               <Route path="/tarefas" element={<Tarefas />} />
               {SOON.map(([path, title, sub]) => (

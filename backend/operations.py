@@ -599,10 +599,96 @@ class AssemblyIn(BaseModel):
     condominium_id: str
     date: str
     time: str = ""
+    second_call_time: str = ""
     location: str = ""
     assembly_type: str = "ordinary"
     agenda: List[AgendaItemIn] = []
     notes: str = ""
+
+
+VOTE_OPTIONS = {"favor", "contra", "abstencao"}
+
+
+async def _condo_permillage(condo_id):
+    """Return (total_permillage, {fraction_id: {permillage, owner_id, identifier}})."""
+    total = 0.0
+    fmap = {}
+    async for f in db.fractions.find({"condominium_id": condo_id}):
+        perm = float(f.get("permillage", 0) or 0)
+        total += perm
+        fmap[str(f["_id"])] = {"permillage": perm, "owner_id": f.get("owner_id"),
+                               "identifier": f.get("identifier", "")}
+    return round(total, 3), fmap
+
+
+def _pct(part, whole):
+    return round((part / whole) * 100, 1) if whole else 0.0
+
+
+async def _assembly_detail(a, user):
+    aid = str(a["_id"])
+    total_perm, fmap = await _condo_permillage(a["condominium_id"])
+    total_fractions = len(fmap)
+    active_call = a.get("active_call", 1)
+
+    attendees = [clean(x) async for x in db.assembly_attendees.find({"assembly_id": aid})]
+    present_fids = {x.get("fraction_id") for x in attendees
+                    if x.get("attendance_type") in ("present", "represented") and x.get("fraction_id")}
+    present_perm = round(sum(fmap.get(fid, {}).get("permillage", 0) for fid in present_fids), 3)
+    present_pct = _pct(present_perm, total_perm)
+    quorum_met = present_pct > 50 if active_call == 1 else present_perm > 0
+
+    votes = [v async for v in db.assembly_votes.find({"assembly_id": aid})]
+    by_item = {}
+    for v in votes:
+        by_item.setdefault(v.get("agenda_number"), []).append(v)
+
+    agenda = []
+    for it in (a.get("agenda") or []):
+        num = it.get("number")
+        vs = by_item.get(num, [])
+        tally = {"favor": 0.0, "contra": 0.0, "abstencao": 0.0}
+        counts = {"favor": 0, "contra": 0, "abstencao": 0}
+        for v in vs:
+            opt = v.get("vote")
+            if opt in tally:
+                tally[opt] += float(v.get("permillage", 0) or 0)
+                counts[opt] += 1
+        tally = {k: round(x, 3) for k, x in tally.items()}
+        voted_perm = round(tally["favor"] + tally["contra"] + tally["abstencao"], 3)
+        if tally["favor"] > tally["contra"]:
+            result = "approved"
+        elif tally["contra"] > tally["favor"]:
+            result = "rejected"
+        elif voted_perm > 0:
+            result = "tie"
+        else:
+            result = "pending"
+        agenda.append({**it, "votes": tally, "vote_counts": counts, "voted_permillage": voted_perm,
+                       "favor_pct_present": _pct(tally["favor"], present_perm),
+                       "contra_pct_present": _pct(tally["contra"], present_perm),
+                       "favor_pct_total": _pct(tally["favor"], total_perm),
+                       "contra_pct_total": _pct(tally["contra"], total_perm),
+                       "result": result})
+
+    d = clean(a)
+    d["agenda"] = agenda
+    d["attendees"] = attendees
+    d["documents"] = [_doc_public(x) async for x in db.documents.find({"related_entity_type": "assembly", "related_entity_id": aid})]
+    d["quorum"] = {"total_permillage": total_perm, "present_permillage": present_perm,
+                   "present_pct": present_pct, "present_fractions": len(present_fids),
+                   "total_fractions": total_fractions, "active_call": active_call,
+                   "quorum_met": quorum_met}
+    if user.get("role") == ROLE_OWNER:
+        my_fids = await owner_fraction_ids(user)
+        d["my_fractions"] = [{"id": fid, "identifier": fmap.get(fid, {}).get("identifier", ""),
+                              "permillage": fmap.get(fid, {}).get("permillage", 0)} for fid in my_fids]
+        my_votes = {}
+        for v in votes:
+            if v.get("fraction_id") in my_fids:
+                my_votes[f"{v.get('agenda_number')}:{v.get('fraction_id')}"] = v.get("vote")
+        d["my_votes"] = my_votes
+    return d
 
 
 @router.get("/assemblies")
@@ -627,9 +713,9 @@ async def create_assembly(payload: AssemblyIn, user=Depends(require_staff)):
     agenda = [{"number": i + 1, "title": it.title, "description": it.description, "decision": "", "status": "pending"}
               for i, it in enumerate(payload.agenda)]
     doc = {"organization_id": user["organization_id"], "condominium_id": payload.condominium_id,
-           "date": payload.date, "time": payload.time, "location": payload.location,
-           "assembly_type": payload.assembly_type, "status": "scheduled", "agenda": agenda,
-           "notes": payload.notes, "created_at": now_utc().isoformat()}
+           "date": payload.date, "time": payload.time, "second_call_time": payload.second_call_time,
+           "location": payload.location, "assembly_type": payload.assembly_type, "status": "scheduled",
+           "active_call": 1, "agenda": agenda, "notes": payload.notes, "created_at": now_utc().isoformat()}
     res = await db.assemblies.insert_one(doc)
     aid = str(res.inserted_id)
     await log_activity(user, "create", "assembly", aid, "Assembleia agendada", payload.condominium_id)
@@ -644,10 +730,29 @@ async def get_assembly(aid: str, user=Depends(get_current_user)):
     if not a:
         raise HTTPException(status_code=404, detail="Assembleia não encontrada")
     await owner_guard(user, condominium_id=a["condominium_id"])
-    d = clean(a)
-    d["attendees"] = [clean(x) async for x in db.assembly_attendees.find({"assembly_id": aid})]
-    d["documents"] = [_doc_public(x) async for x in db.documents.find({"related_entity_type": "assembly", "related_entity_id": aid})]
-    return d
+    return await _assembly_detail(a, user)
+
+
+class AssemblyUpdate(BaseModel):
+    active_call: Optional[int] = None
+    status: Optional[str] = None
+
+
+@router.put("/assemblies/{aid}")
+async def update_assembly(aid: str, payload: AssemblyUpdate, user=Depends(require_staff)):
+    a = await db.assemblies.find_one(scope_query(user, {"_id": oid(aid)}))
+    if not a:
+        raise HTTPException(status_code=404, detail="Assembleia não encontrada")
+    upd = {}
+    if payload.active_call in (1, 2):
+        upd["active_call"] = payload.active_call
+    if payload.status in ("scheduled", "in_progress", "closed"):
+        upd["status"] = payload.status
+    if upd:
+        await db.assemblies.update_one({"_id": oid(aid)}, {"$set": upd})
+        await log_activity(user, "update", "assembly", aid, "Assembleia atualizada", a["condominium_id"])
+    a = await db.assemblies.find_one({"_id": oid(aid)})
+    return await _assembly_detail(a, user)
 
 
 class AttendeeIn(BaseModel):
@@ -662,12 +767,68 @@ async def add_attendee(aid: str, payload: AttendeeIn, user=Depends(require_staff
     a = await db.assemblies.find_one(scope_query(user, {"_id": oid(aid)}))
     if not a:
         raise HTTPException(status_code=404, detail="Assembleia não encontrada")
-    owner = await db.owners.find_one({"_id": oid(payload.owner_id)})
+    owner = await db.owners.find_one({"_id": oid(payload.owner_id)}) if payload.owner_id else None
+    perm = 0.0
+    if payload.fraction_id:
+        frac = await db.fractions.find_one({"_id": oid(payload.fraction_id)})
+        if not frac or frac.get("condominium_id") != a["condominium_id"]:
+            raise HTTPException(status_code=400, detail="Fração inválida para esta assembleia")
+        perm = float(frac.get("permillage", 0) or 0)
     doc = {"assembly_id": aid, "owner_id": payload.owner_id, "owner_name": owner["name"] if owner else "",
-           "fraction_id": payload.fraction_id, "attendance_type": payload.attendance_type,
-           "represented_by": payload.represented_by, "created_at": now_utc().isoformat()}
-    await db.assembly_attendees.insert_one(doc)
-    return clean(doc)
+           "fraction_id": payload.fraction_id, "permillage": perm,
+           "attendance_type": payload.attendance_type, "represented_by": payload.represented_by,
+           "created_at": now_utc().isoformat()}
+    if payload.fraction_id:
+        await db.assembly_attendees.update_one(
+            {"assembly_id": aid, "fraction_id": payload.fraction_id}, {"$set": doc}, upsert=True)
+    else:
+        await db.assembly_attendees.insert_one(doc)
+    return await _assembly_detail(a, user)
+
+
+class VoteIn(BaseModel):
+    agenda_number: int
+    fraction_id: str
+    vote: str
+
+
+@router.post("/assemblies/{aid}/vote")
+async def cast_vote(aid: str, payload: VoteIn, user=Depends(get_current_user)):
+    a = await db.assemblies.find_one(scope_query(user, {"_id": oid(aid)}))
+    if not a:
+        raise HTTPException(status_code=404, detail="Assembleia não encontrada")
+    if payload.vote not in VOTE_OPTIONS:
+        raise HTTPException(status_code=400, detail="Voto inválido")
+    frac = await db.fractions.find_one({"_id": oid(payload.fraction_id)})
+    if not frac or frac.get("condominium_id") != a["condominium_id"]:
+        raise HTTPException(status_code=400, detail="Fração inválida para esta assembleia")
+    # owners may only vote for their own fraction; staff may vote for any fraction of the condo
+    if user.get("role") == ROLE_OWNER:
+        await owner_guard(user, condominium_id=a["condominium_id"], fraction_id=payload.fraction_id)
+    else:
+        await owner_guard(user, condominium_id=a["condominium_id"])
+    if not any(it.get("number") == payload.agenda_number for it in (a.get("agenda") or [])):
+        raise HTTPException(status_code=404, detail="Ponto da ordem de trabalhos não encontrado")
+    perm = float(frac.get("permillage", 0) or 0)
+    owner_id = frac.get("owner_id")
+    now = now_utc().isoformat()
+    await db.assembly_votes.update_one(
+        {"assembly_id": aid, "agenda_number": payload.agenda_number, "fraction_id": payload.fraction_id},
+        {"$set": {"assembly_id": aid, "agenda_number": payload.agenda_number,
+                  "fraction_id": payload.fraction_id, "owner_id": owner_id, "permillage": perm,
+                  "vote": payload.vote, "voted_by": user["id"], "voted_by_name": user.get("name"),
+                  "created_at": now}}, upsert=True)
+    # ensure the voting fraction is counted as present for quorum
+    owner = await db.owners.find_one({"_id": oid(owner_id)}) if owner_id else None
+    await db.assembly_attendees.update_one(
+        {"assembly_id": aid, "fraction_id": payload.fraction_id},
+        {"$setOnInsert": {"assembly_id": aid, "fraction_id": payload.fraction_id, "owner_id": owner_id,
+                          "owner_name": owner["name"] if owner else "", "permillage": perm,
+                          "attendance_type": "present", "represented_by": "", "created_at": now}},
+        upsert=True)
+    await log_activity(user, "vote", "assembly", aid,
+                       f"Voto registado (ponto {payload.agenda_number})", a["condominium_id"])
+    return await _assembly_detail(a, user)
 
 
 # ============================================================ TASKS

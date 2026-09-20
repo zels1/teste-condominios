@@ -80,5 +80,15 @@ Auth + roles, backend tenant isolation, condominiums/fractions/owners relationsh
 - create_payment not wrapped in a Mongo multi-doc transaction (standalone mongod); uses compensation on failure.
 - Some Radix Dialogs lack DialogDescription (a11y warning only).
 
+## Phase 4 — Portal do Condómino (Implemented 2026-06)
+- [2026-06] Dedicated owner dashboard (`OwnerDashboard.jsx`) routed via `DashboardRouter` (owner→OwnerDashboard, staff→Dashboard): balance hero (dívida/crédito/regularizado), próximo pagamento, quick-action tiles, as minhas frações, o meu condomínio, recebimentos recentes com recibo PDF.
+- [2026-06] New backend endpoint `GET /api/finance/owner-summary` (owner-only, staff/super_admin → 403) aggregating own balance, next_due, fractions, condominiums, recent payments, counts (communications, open_occurrences matching visibility rule).
+- [2026-06] Owner sidebar: Dashboard, Minha Conta, Ocorrências, Comunicações (novo), Documentos. Comunicações: compose + "Destinatários" ocultos para condómino (inbox read-only).
+- [2026-06] Security hardening (from iteration_3 review):
+  - `list_occurrences` + `get_occurrence`: owner só vê ocorrências da própria fração, de áreas comuns (sem fração) ou por si reportadas; detalhe de fração alheia → 403/404.
+  - `_can_access_document`: owner só acede a docs da própria fração/owner ou docs do próprio condomínio NÃO confidenciais (bloqueia categorias Confidencial/Pessoal/RH/Privado); docs de outro condomínio → 403.
+  - `list_fractions`: owner recebe apenas as suas próprias frações (sem leak de vizinhos).
+- [2026-06] Verified: 14/14 Phase-4 tests + 30/30 regression (ops 18 + finance 12) = 44/44. Frontend flows (owner portal, sidebar scoping, comunicações gating) pass.
+
 ## Next Tasks
-Phase 3 Operations: Maintenance/Occurrences, Documents (object storage), Communications, Meetings/Assemblies. Then bank reconciliation (BANK_TRANSACTION schema already prepared) and Phase 5 automation/AI.
+Phase 5 Automation/AI: payment reminders, email automation (Resend), WhatsApp, OCR invoices, AI document/email/minutes. Then Assembly voting/quorum logic and bank reconciliation (BANK_TRANSACTION schema prepared).

@@ -895,7 +895,7 @@ async def owner_summary(user=Depends(get_current_user)):
             due = parse_dt(t.get("due_date")) or parse_dt(t.get("date")) or now
             if due < now:
                 overdue_cents += rem
-            if next_due is None or (parse_dt(t.get("due_date")) or now) < parse_dt(next_due["due_date"]):
+            if next_due is None or due < (parse_dt(next_due["due_date"]) or now):
                 next_due = {"due_date": t.get("due_date") or t.get("date"),
                             "amount": from_cents(rem), "description": t.get("description", "Quota"),
                             "fraction_identifier": f["identifier"]}
@@ -918,12 +918,13 @@ async def owner_summary(user=Depends(get_current_user)):
                                 "amount": from_cents(p["amount_cents"]),
                                 "method": p.get("method"), "receipt_number": p.get("receipt_number")})
 
-    unread_comms = await db.communications.count_documents(
+    total_comms = await db.communications.count_documents(
         org_filter(user, {"recipient_owner_ids": user["owner_id"]}))
+    fids = [fr["id"] for fr in frac_rows]
     open_occurrences = await db.occurrences.count_documents(org_filter(user, {
         "condominium_id": user.get("condominium_id"),
-        "fraction_id": {"$in": [fr["id"] for fr in frac_rows]},
-        "status": {"$nin": ["resolved", "closed"]}}))
+        "status": {"$nin": ["resolved", "closed"]},
+        "$or": [{"fraction_id": {"$in": fids}}, {"fraction_id": None}, {"reported_by": user.get("id")}]}))
 
     return {
         "owner_name": user.get("name"),
@@ -937,7 +938,7 @@ async def owner_summary(user=Depends(get_current_user)):
         "fractions": frac_rows,
         "condominiums": my_condos,
         "recent_payments": recent_payments,
-        "counts": {"communications": unread_comms, "open_occurrences": open_occurrences},
+        "counts": {"communications": total_comms, "open_occurrences": open_occurrences},
     }
 class SupplierIn(BaseModel):
     name: str

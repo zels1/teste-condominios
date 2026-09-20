@@ -59,5 +59,26 @@ Auth + roles, backend tenant isolation, condominiums/fractions/owners relationsh
 - Recharts width/height console warnings on first paint (cosmetic).
 - Dialogs missing DialogDescription (a11y warning only).
 
+## Phase 2 — Financial Engine (Implemented 2026-06)
+- [2026-06] Transaction-based accounting ledger in integer cents (`money.py`, `finance.py`); balances always derived = Σ(debit)−Σ(credit). Immutable ledger; corrections via CREDIT/REVERSAL preserving originals.
+- [2026-06] Charge types, charge configs (FIXED_AMOUNT/PERMILAGE/FRACTION_SPECIFIC/MANUAL), annual budgets with lines + approval.
+- [2026-06] Idempotent quota generation (generation_key per fraction+period).
+- [2026-06] Payments with oldest-first & manual allocation; partial payments; overpayment kept as credit_remaining; receipt numbering.
+- [2026-06] Manual charges, credit notes, reversals.
+- [2026-06] Conta corrente statement (running balance), debt aging (7 buckets by due_date), per-fraction debts list.
+- [2026-06] Finance dashboard (receivable, overdue, received/expenses/cashflow, in-debt counts, 6-month series, aging, outstanding by condo).
+- [2026-06] Suppliers, expenses (VAT, categories, status), bank accounts (IBAN masked for owners).
+- [2026-06] 8 reports (receivable, owner_debt, aging, payments, charges, expenses, income_vs_expenses, condo_summary) + CSV export.
+- [2026-06] PDF receipt + payment notice (reportlab, PT/EUR).
+- [2026-06] Owner portal "Minha Conta" (own statement, balance, receipts) — strict backend isolation.
+- [2026-06] Frontend Finance section: Visão Geral, Conta Corrente, Quotas, Recebimentos, Dívidas, Despesas, Orçamento, Relatórios + Fornecedores.
+- [2026-06] Verified: 12/12 finance tests (TESTs 1–10), 20/20 Phase-1 regressions.
+- Rounding: EUR 2dp, ROUND_HALF_UP (permillage & splits; remainder cent on first period → exact annual totals).
+
+## Known non-blocking items (Phase 2)
+- N+1 balance queries in dashboard/debts/reports (fine at MVP scale; move to $group aggregation later).
+- create_payment not wrapped in a Mongo multi-doc transaction (standalone mongod); uses compensation on failure.
+- Some Radix Dialogs lack DialogDescription (a11y warning only).
+
 ## Next Tasks
-Phase 2 Finance: start with Expenses + Suppliers modules and per-owner account statements.
+Phase 3 Operations: Maintenance/Occurrences, Documents (object storage), Communications, Meetings/Assemblies. Then bank reconciliation (BANK_TRANSACTION schema already prepared) and Phase 5 automation/AI.

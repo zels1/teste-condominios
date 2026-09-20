@@ -1,0 +1,36 @@
+{
+  "summary": "DOMVUS Phase 2 (Financial Engine) — end-to-end test. Backend: 12/12 pytest passing in /app/backend/tests/test_domvus_finance.py covering all 9 core scenarios (charge+full/partial/over payment => derived balance/PAID/PARTIALLY_PAID/credit_remaining; oldest-first allocation across 3 months Jan/Feb/Mar; charge reversal preserves original & nets to 0; idempotent generate-quotas re-run creates=0 skipped>0; permillage decimal precision — sum of monthly splits == annual share ±0 cents; owner isolation — 403 on other fraction statement, own transactions only; RBAC — owner 403 on POST /finance/charges|payments|expenses|suppliers and GET /finance/suppliers; PDF receipt & notice return application/pdf starting with %PDF; JSON+CSV export for all 8 reports (receivable, owner_debt, aging, payments, charges, expenses, income_vs_expenses, condo_summary); finance dashboard has all totals and 7 aging buckets). Frontend: super_admin navigation to all finance pages works (nav-financas, nav-quotas, nav-recebimentos, nav-contas, nav-dividas, nav-despesas, nav-orcamento, nav-relatorios, nav-fornecedores all present); after condo selection the conditional buttons render as expected (add-config-btn, generate-quotas-btn on Quotas; add-budget-btn on Orcamento; statement-table+register-payment-btn+notice-pdf-btn on Conta Corrente after choosing condo+fraction); Dividas shows all 7 aging buckets (current,1-30,31-60,61-90,91-180,181-365,365+) and debts-table; Relatorios: report-select/export-csv-btn/print-btn present, receivable report renders 11 rows. Owner flow (condomino@domvus.pt): sidebar limited to Dashboard + Minha Conta (+ Documentos EM BREVE placeholder — no financial write actions); Minha Conta shows fraction selector, Saldo/Em dívida/Crédito KPIs, full statement with running balance in € and per-payment receipt PDF buttons.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Owner sidebar", "issues": ["Documentos link is a placeholder ('EM BREVE') — cosmetic, expected per roadmap."]},
+      {"screen": "Radix Dialogs", "issues": ["Some DialogContent still missing DialogDescription/aria-describedby (accessibility warning carried over from iteration 1)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_domvus_finance.py",
+    "/app/backend/tests/test_domvus_backend.py",
+    "/app/test_reports/pytest/finance_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "finance.py fraction_balance_cents is O(N) per fraction — dashboard/debts/reports iterate all fractions calling it: N+1 across the whole ledger. At MVP scale it's fine but the finance/dashboard endpoint will not scale beyond a few thousand fractions. Suggest a single $group aggregation keyed by fraction_id summing debit_cents-credit_cents.",
+    "finance.py generate_quotas uses find_one per (fraction, month) to check generation_key. With M fractions * K months that's M*K DB round-trips. Consider bulk-fetch existing generation_keys once, filter in memory.",
+    "finance.py create_payment does allocation + insert transaction + insert payment across two collections without a Mongo session/transaction. The compensation try/except only rolls back the ledger tx if the payments insert throws — but if the *update* setting payment_id (line 623) fails, the payment record and tx will be orphaned. Wrap in a client session with a transaction when using replica set.",
+    "finance.py owner_guard is called at the top of some endpoints but /finance/transactions returns [] silently when filters don't match — an owner GETing /finance/transactions?condominium_id=<other> gets the list forcibly re-scoped to their own condo (see lines 435-437). Behavior is safe but could be surprising; consider 403 when the caller explicitly asks for another condominium.",
+    "finance.py POST /finance/suppliers requires_staff but does NOT call owner_guard nor filter condominium_ids to those the manager can access — a manager could attach a supplier to any condominium_id string. Add validation that all condominium_ids belong to user's org.",
+    "finance.py mask_iban uses U+2022 bullet but /bank-accounts still returns the full IBAN in the payment_notice PDF (line 1214) even when the requester is an owner — PDF is fine because owner_guard restricted to their own fraction/condo, but the ADR was 'mask IBAN for owners' — verify whether the notice PDF should mask too (currently it does not).",
+    "finance.py report() 'income_vs_expenses' and 'condo_summary' bypass org_filter on the inner db.transactions.find({condominium_id: cid, ...}) queries — safe because cid comes from _scope_condos which already filtered by org, but pattern is fragile: any regression in _scope_condos becomes a tenant-isolation bug. Add org_filter to the inner queries defensively.",
+    "money.py permillage rounding uses banker's/half-even by default in Decimal — verify chosen rounding matches Portuguese accounting expectations (typically HALF_UP)."
+  ],
+  "updated_files": ["/app/backend/tests/test_domvus_finance.py"],
+  "success_rate": {"backend": "100% (12/12 finance + 20/20 phase1 regressions previously)", "frontend": "100% of exercised flows"},
+  "test_credentials": "super_admin master.marques@gmail.com / Domvus2025!; owner condomino@domvus.pt / Domvus2025! (see /app/memory/test_credentials.md)",
+  "seed_data_creation": "Each backend test creates its own TEST_ condo/owner/fraction and deletes the condo on teardown (cascade). Seed demo data was NOT modified.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Finance regression suite at /app/backend/tests/test_domvus_finance.py (12 tests, ~7s). Runs via `pytest tests/test_domvus_finance.py -v` from /app/backend. Uses cookie-jar-to-Bearer fallback in _login for cross-origin cookie handling. Note conditional-render pattern: on /quotas, /orcamento, /contas-correntes, action buttons (add-config-btn, generate-quotas-btn, add-budget-btn, register-payment-btn, notice-pdf-btn, statement-table) only mount AFTER the user selects a condo (and fraction, for CC) — testing agents must open the condo Select and pick an option before asserting these testids exist.",
+  "rca of the issue": "No blocking bugs found in Phase 2. All 10 scenarios listed in the review request behave as specified; overpayment leftover is correctly stored as payment.credit_remaining_cents and reflected in statement.credit; reversal keeps the original transaction visible with reversed=true; permillage split_periods puts the remainder cent on the first period so annual totals are exact."
+}

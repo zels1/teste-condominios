@@ -40,7 +40,6 @@ function VoteButtons({ current, onVote, pending, testidPrefix }) {
 }
 
 function TallyBar({ item, base }) {
-  const denom = base === "present" ? item.favor_pct_present + item.contra_pct_present : null;
   const rows = [
     ["favor", item.votes.favor, base === "present" ? item.favor_pct_present : item.favor_pct_total],
     ["contra", item.votes.contra, base === "present" ? item.contra_pct_present : item.contra_pct_total],
@@ -63,7 +62,11 @@ function TallyBar({ item, base }) {
           </div>
         );
       })}
-      {denom != null && <p className="pt-0.5 text-[11px] text-muted-foreground">Percentagens sobre o capital presente</p>}
+      {item.voted_permillage > 0 && (
+        <p className="pt-0.5 text-[11px] text-muted-foreground">
+          Percentagens sobre o capital {base === "present" ? "presente" : "total"}
+        </p>
+      )}
     </div>
   );
 }

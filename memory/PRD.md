@@ -90,5 +90,12 @@ Auth + roles, backend tenant isolation, condominiums/fractions/owners relationsh
   - `list_fractions`: owner recebe apenas as suas próprias frações (sem leak de vizinhos).
 - [2026-06] Verified: 14/14 Phase-4 tests + 30/30 regression (ops 18 + finance 12) = 44/44. Frontend flows (owner portal, sidebar scoping, comunicações gating) pass.
 
+## Phase 5 — Assembleias: Quórum & Votação por Permilagem (Implemented 2026-06)
+- [2026-06] Cálculo de quórum: `_condo_permillage` soma permilagem de todas as frações; `_assembly_detail` calcula present_permillage (frações present/represented), present_pct, quorum_met — 1ª convocatória exige >500‰; 2ª convocatória delibera com qualquer >0‰ (staff alterna via PUT /ops/assemblies/{id}).
+- [2026-06] Votação ponderada por permilagem: POST /ops/assemblies/{id}/vote com upsert por (assembly, agenda_number, fraction_id); tallies em ‰ + contagens; percentagens sobre presentes e sobre total; resultado approved/rejected/tie/pending (maioria dos presentes). Votar marca a fração como presente.
+- [2026-06] Isolamento: condómino vota apenas pela própria fração (owner_guard); staff vota por qualquer fração do condomínio; PUT convocatória é staff-only.
+- [2026-06] Frontend: nova página `AssembleiaDetail` (painel de quórum com barra, toggle 1ª/2ª convocatória, presenças [staff], votação por ponto com barras e badge de resultado, votação do condómino no portal). Cartões clicáveis; Assembleias no OWNER_GROUPS; criar assembleia só staff.
+- [2026-06] Verificado: 7/7 testes Phase 5 + 44/44 regressão = 51/51; fluxos frontend staff/condómino aprovados.
+
 ## Next Tasks
 Phase 5 Automation/AI: payment reminders, email automation (Resend), WhatsApp, OCR invoices, AI document/email/minutes. Then Assembly voting/quorum logic and bank reconciliation (BANK_TRANSACTION schema prepared).

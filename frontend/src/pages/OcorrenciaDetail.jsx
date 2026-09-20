@@ -13,9 +13,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Send, Receipt } from "lucide-react";
+import { ArrowLeft, Loader2, Send, Receipt, ImagePlus } from "lucide-react";
 
 const STATUSES = ["new", "assigned", "in_progress", "waiting_supplier", "waiting_owner", "waiting_approval", "resolved", "closed", "cancelled"];
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 export default function OcorrenciaDetail() {
   const { id } = useParams();
@@ -45,8 +46,25 @@ export default function OcorrenciaDetail() {
     onSuccess: (r) => toast.success(`Despesa criada: ${formatCurrency(r.data.amount)}`),
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
+  const uploadPhoto = useMutation({
+    mutationFn: (fileObj) => {
+      const fd = new FormData();
+      fd.append("file", fileObj);
+      return api.post(`/ops/occurrences/${id}/photos`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["occurrence", id] }); toast.success("Fotografia adicionada."); },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+
+  const onPhotoPick = (e) => {
+    const f = e.target.files?.[0];
+    if (f) uploadPhoto.mutate(f);
+    e.target.value = "";
+  };
 
   if (isLoading || !o) return <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+
+  const photos = (o.documents || []).filter((d) => d.category === "Fotografia" || (d.file_type || "").startsWith("image/"));
 
   return (
     <div data-testid="occurrence-detail-page">
@@ -62,6 +80,39 @@ export default function OcorrenciaDetail() {
           <Card className="border-border p-5 shadow-none">
             <h3 className="mb-2 font-display text-sm font-semibold">Descrição</h3>
             <p className="text-sm text-muted-foreground">{o.description || "—"}</p>
+          </Card>
+          <Card className="border-border p-5 shadow-none" data-testid="occ-photos-card">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-display text-sm font-semibold">Fotografias</h3>
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted" data-testid="occ-photo-upload-label">
+                {uploadPhoto.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                Adicionar fotografia
+                <input type="file" accept="image/*" className="hidden" onChange={onPhotoPick} disabled={uploadPhoto.isPending} data-testid="occ-photo-input" />
+              </label>
+            </div>
+            {photos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem fotografias. Adicione imagens do problema para ajudar na resolução.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" data-testid="occ-photos-grid">
+                {photos.map((d) => (
+                  <a
+                    key={d.id}
+                    href={`${BACKEND_URL}/api/ops/documents/${d.id}/download`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group relative block overflow-hidden rounded-md border border-border"
+                    data-testid={`occ-photo-${d.id}`}
+                  >
+                    <img
+                      src={`${BACKEND_URL}/api/ops/documents/${d.id}/download`}
+                      alt={d.name || "Fotografia"}
+                      className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
+                      loading="lazy"
+                    />
+                  </a>
+                ))}
+              </div>
+            )}
           </Card>
           <Card className="border-border p-5 shadow-none">
             <h3 className="mb-3 font-display text-sm font-semibold">Cronologia</h3>

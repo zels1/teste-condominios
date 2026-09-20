@@ -27,6 +27,7 @@ ALLOWED_TYPES = {
     "text/plain", "text/csv",
 }
 MAX_FILE = 12 * 1024 * 1024
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
 def clean(d):
@@ -231,6 +232,41 @@ async def add_comment(oid_: str, payload: CommentIn, user=Depends(get_current_us
     await db.occurrence_comments.insert_one(doc)
     await log_activity(user, "comment", "occurrence", oid_, "Comentário adicionado", o["condominium_id"])
     return clean(doc)
+
+
+async def _occurrence_owner_ok(user, o):
+    """Whether an owner may access this occurrence (own fraction, common-area or reported by self)."""
+    if user.get("role") != ROLE_OWNER:
+        return True
+    if o.get("condominium_id") != user.get("condominium_id"):
+        return False
+    fid = o.get("fraction_id")
+    if not fid or o.get("reported_by") == user.get("id"):
+        return True
+    return fid in await owner_fraction_ids(user)
+
+
+@router.post("/occurrences/{oid_}/photos")
+async def add_occurrence_photo(oid_: str, file: UploadFile = File(...), user=Depends(get_current_user)):
+    o = await db.occurrences.find_one(scope_query(user, {"_id": oid(oid_)}))
+    if not o:
+        raise HTTPException(status_code=404, detail="Ocorrência não encontrada")
+    await owner_guard(user, condominium_id=o["condominium_id"])
+    if not await _occurrence_owner_ok(user, o):
+        raise HTTPException(status_code=403, detail="Sem acesso a esta ocorrência")
+    if file.content_type not in IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Apenas imagens (JPEG, PNG, WEBP, GIF)")
+    data = await file.read()
+    if len(data) > MAX_FILE:
+        raise HTTPException(status_code=400, detail="Imagem demasiado grande (máx. 12MB)")
+    doc = {"organization_id": o["organization_id"], "name": file.filename or "Fotografia",
+           "file_name": file.filename or "foto.jpg", "file_type": file.content_type, "file_size": len(data),
+           "category": "Fotografia", "description": "", "uploaded_by": user["id"], "uploaded_by_name": user["name"],
+           "condominium_id": o["condominium_id"], "related_entity_type": "occurrence", "related_entity_id": oid_,
+           "version": 1, "data_b64": base64.b64encode(data).decode(), "created_at": now_utc().isoformat()}
+    await db.documents.insert_one(doc)
+    await log_activity(user, "upload", "occurrence", oid_, "Fotografia adicionada", o["condominium_id"])
+    return await get_occurrence(oid_, user)
 
 
 @router.post("/occurrences/{oid_}/create-expense")
@@ -439,6 +475,9 @@ async def _can_access_document(user, d):
         return ei == user.get("owner_id")
     if et == "fraction":
         return ei in await owner_fraction_ids(user)
+    if et == "occurrence":
+        occ = await db.occurrences.find_one({"_id": oid(ei)}) if ei else None
+        return bool(occ) and await _occurrence_owner_ok(user, occ)
     # condominium-level or unscoped: only same condo and not a confidential category
     if d.get("condominium_id") and d.get("condominium_id") == user.get("condominium_id"):
         return (d.get("category") or "").strip().lower() not in CONFIDENTIAL_CATEGORIES

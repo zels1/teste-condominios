@@ -90,6 +90,9 @@ Auth + roles, backend tenant isolation, condominiums/fractions/owners relationsh
   - `list_fractions`: owner recebe apenas as suas próprias frações (sem leak de vizinhos).
 - [2026-06] Verified: 14/14 Phase-4 tests + 30/30 regression (ops 18 + finance 12) = 44/44. Frontend flows (owner portal, sidebar scoping, comunicações gating) pass.
 
+## Ocorrências — Fotografias (Implemented 2026-06)
+- [2026-06] Upload de fotografias nas ocorrências: POST /ops/occurrences/{id}/photos (staff + condómino com acesso à própria ocorrência via `_occurrence_owner_ok`); valida IMAGE_TYPES (JPEG/PNG/WEBP/GIF, máx 12MB); guarda como documento related_entity_type='occurrence', category='Fotografia'. `_can_access_document` reforçado para docs de ocorrência. Galeria de miniaturas no detalhe (`OcorrenciaDetail`) com download autenticado. Verificado frontend (staff + condómino) + isolamento por curl.
+
 ## Phase 5 — Assembleias: Quórum & Votação por Permilagem (Implemented 2026-06)
 - [2026-06] Cálculo de quórum: `_condo_permillage` soma permilagem de todas as frações; `_assembly_detail` calcula present_permillage (frações present/represented), present_pct, quorum_met — 1ª convocatória exige >500‰; 2ª convocatória delibera com qualquer >0‰ (staff alterna via PUT /ops/assemblies/{id}).
 - [2026-06] Votação ponderada por permilagem: POST /ops/assemblies/{id}/vote com upsert por (assembly, agenda_number, fraction_id); tallies em ‰ + contagens; percentagens sobre presentes e sobre total; resultado approved/rejected/tie/pending (maioria dos presentes). Votar marca a fração como presente.

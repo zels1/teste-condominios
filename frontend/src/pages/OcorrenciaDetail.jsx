@@ -50,7 +50,7 @@ export default function OcorrenciaDetail() {
     mutationFn: (fileObj) => {
       const fd = new FormData();
       fd.append("file", fileObj);
-      return api.post(`/ops/occurrences/${id}/photos`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      return api.post(`/ops/occurrences/${id}/photos`, fd);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["occurrence", id] }); toast.success("Fotografia adicionada."); },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),

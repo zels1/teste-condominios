@@ -1,0 +1,21 @@
+{
+  "summary": "DOMVUS Occurrences PHOTO UPLOAD (frontend-only) — fully verified via Playwright against REACT_APP_BACKEND_URL. STAFF (master.marques@gmail.com): /ocorrencias lists 38 rows; opening first row renders occurrence-detail-page with occ-photos-card visible; set_input_files on occ-photo-input with a 1x1 PNG triggers upload mutation → occ-photos-grid appears with 1 <a data-testid=occ-photo-{docId}> whose <img> src points to /api/ops/documents/{id}/download and loads successfully (complete=true, naturalWidth>0). Toast 'Fotografia adicionada.' shown. Uploading a .txt file returns 400 and shows the exact backend error toast 'Apenas imagens (JPEG, PNG, WEBP, GIF)'. Regression on same detail page: comment-input + comment-submit works; occ-edit-status and occ-save remain visible for staff. OWNER (condomino@domvus.pt / A101 Jardins do Tejo): /ocorrencias lists 6 own rows; detail page renders occ-photos-card and hides staff controls (occ-edit-status null); PNG upload succeeds and thumbnail img loads via document download endpoint using httpOnly cookie same-origin (naturalWidth>0); .txt upload rejected with same 400 + error toast. All 4 requested flows PASS. No UI regressions observed. Cookies + Bearer fallback working through preview URL.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "OcorrenciaDetail.jsx line 53 — explicit `Content-Type: multipart/form-data` header omits the boundary; browsers/axios normally set it automatically. Works here because axios overrides with FormData, but the manual header is misleading; safer to delete that headers property and let axios/browser build the boundary.",
+    "OcorrenciaDetail.jsx line 67 — photos filter accepts either category==='Fotografia' OR file_type startsWith 'image/'; consistent, but no dedup guard if a doc has both — fine today but worth noting.",
+    "Thumbnails <img> src uses REACT_APP_BACKEND_URL absolute URL; relies on cookie samesite=none;secure to send credentials cross-site. Works on the preview domain (same registrable domain) but if the frontend is later hosted on a different domain, thumbnails will 401. Consider using a blob URL fetched via axios (which carries the Bearer fallback) for portability.",
+    "onPhotoPick clears e.target.value only after mutate() is dispatched synchronously — good, allows re-selecting the same file after failure."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (staff upload, owner upload, invalid-file rejection with toast, regressions all green)"},
+  "test_credentials": "staff master.marques@gmail.com / Domvus2025! ; owner condomino@domvus.pt / Domvus2025!",
+  "seed_data_creation": "None. 2 real photo Documents were created against existing seed occurrences (one per user); no cleanup performed (test artefacts are just 1x1 PNGs and are contained within existing occurrences).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Photo upload UI verified end-to-end. Pattern for future upload tests: create tiny PNG bytes in-process, use page.set_input_files on the hidden occ-photo-input testid (no need to click the label), then wait ~3s and query [data-testid=occ-photos-grid] a[data-testid^=occ-photo-]. For rejection UX, sonner toasts are readable via document.querySelectorAll('[data-sonner-toast]').",
+  "rca of the issue": "No bugs found. Feature works exactly per spec: FormData POST /api/ops/occurrences/{oid}/photos → new Document with category='Fotografia', React Query invalidation refetches occurrence, filter picks up new photo, grid renders <img> using same-origin cookie auth for the download endpoint. Backend IMAGE_TYPES validation and _occurrence_owner_ok guard both propagate correct 400/403 which surface as sonner error toasts via formatApiErrorDetail."
+}
